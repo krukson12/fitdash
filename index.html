@@ -6,7 +6,37 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FitDash">
+<meta name="theme-color" content="#0e0e10">
 <title>FitDash</title>
+
+<!-- PWA Manifest inline via JS -->
+<script>
+(function() {
+  const manifest = {
+    name: "FitDash",
+    short_name: "FitDash",
+    description: "Personal fitness tracker",
+    start_url: ".",
+    display: "standalone",
+    background_color: "#0e0e10",
+    theme_color: "#0e0e10",
+    orientation: "portrait",
+    icons: [
+      { src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230e0e10'/%3E%3Ctext x='50%25' y='54%25' font-size='300' text-anchor='middle' dominant-baseline='middle' fill='%23c8f135'%3E%F0%9F%8F%8B%EF%B8%8F%3C/text%3E%3C/svg%3E", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+    ]
+  };
+  const blob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = url;
+  document.head.appendChild(link);
+})();
+</script>
+
+<!-- Apple touch icon inline SVG -->
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230e0e10'/%3E%3Ctext x='50%25' y='54%25' font-size='300' text-anchor='middle' dominant-baseline='middle' fill='%23c8f135'%3E%F0%9F%8F%8B%EF%B8%8F%3C/text%3E%3C/svg%3E">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -499,10 +529,59 @@ select option { background: var(--bg3); }
   align-items: center;
   justify-content: center;
 }
+
+/* ===== PWA INSTALL BANNER ===== */
+.pwa-banner {
+  margin: 0 14px 12px;
+  background: var(--accent-dim);
+  border: 0.5px solid rgba(200,241,53,0.25);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideDown .3s ease;
+}
+@keyframes slideDown { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+.pwa-banner-icon { font-size: 22px; flex-shrink: 0; }
+.pwa-banner-text { flex: 1; }
+.pwa-banner-title { font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+.pwa-banner-sub { font-size: 11px; color: var(--text2); line-height: 1.4; }
+.pwa-banner-close {
+  color: var(--text3);
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px;
+  line-height: 1;
+}
+
+/* ===== OFFLINE BADGE ===== */
+.offline-badge {
+  position: fixed;
+  top: calc(var(--safe-top) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--red);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  z-index: 300;
+  display: none;
+  letter-spacing: .04em;
+}
+.offline-badge.show { display: block; }
 </style>
 </head>
 <body>
+
+<div class="offline-badge" id="offline-badge">OFFLINE</div>
+
 <div class="app">
+  <div id="pwa-banner-container"></div>
+
   <div class="scroll-area">
 
     <!-- DASHBOARD -->
@@ -702,12 +781,253 @@ select option { background: var(--bg3); }
 </div>
 
 <script>
+// ── SERVICE WORKER (inline via blob) ─────────────────────
+(function registerSW() {
+  const swCode = `
+const CACHE = 'fitdash-v1';
+const ASSETS = [self.location.href];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(clients.claim());
+});
+
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      const fetchPromise = fetch(e.request).then(res => {
+        if (res && res.status === 200) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      }).catch(() => cached);
+      return cached || fetchPromise;
+    })
+  );
+});
+  `;
+  if ('serviceWorker' in navigator) {
+    const blob = new Blob([swCode], { type: 'application/javascript' });
+    const swUrl = URL.createObjectURL(blob);
+    navigator.serviceWorker.register(swUrl, { scope: '/' }).catch(() => {});
+  }
+})();
+
+// ── OFFLINE DETECTION ────────────────────────────────────
+function updateOnlineStatus() {
+  document.getElementById('offline-badge').classList.toggle('show', !navigator.onLine);
+}
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+updateOnlineStatus();
+
+// ── PWA INSTALL BANNER ───────────────────────────────────
+let deferredInstallPrompt = null;
+const BANNER_DISMISSED_KEY = 'fitdash_pwa_dismissed';
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if (!localStorage.getItem(BANNER_DISMISSED_KEY)) {
+    showInstallBanner('android');
+  }
+});
+
+function showInstallBanner(type) {
+  const container = document.getElementById('pwa-banner-container');
+  if (type === 'ios') {
+    container.innerHTML = `
+      <div class="pwa-banner" id="pwa-banner">
+        <div class="pwa-banner-icon">📲</div>
+        <div class="pwa-banner-text">
+          <div class="pwa-banner-title">Add to Home Screen</div>
+          <div class="pwa-banner-sub">Tap <strong>Share</strong> → <strong>Add to Home Screen</strong> to install FitDash as an app</div>
+        </div>
+        <span class="pwa-banner-close" onclick="dismissBanner()">×</span>
+      </div>`;
+  } else {
+    container.innerHTML = `
+      <div class="pwa-banner" id="pwa-banner">
+        <div class="pwa-banner-icon">📲</div>
+        <div class="pwa-banner-text">
+          <div class="pwa-banner-title">Install FitDash</div>
+          <div class="pwa-banner-sub">Add to your home screen for the best experience</div>
+        </div>
+        <button onclick="triggerInstall()" style="background:var(--accent);color:#0e0e10;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Install</button>
+        <span class="pwa-banner-close" onclick="dismissBanner()">×</span>
+      </div>`;
+  }
+}
+
+function triggerInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.then(() => {
+    deferredInstallPrompt = null;
+    dismissBanner();
+  });
+}
+
+function dismissBanner() {
+  localStorage.setItem(BANNER_DISMISSED_KEY, '1');
+  const b = document.getElementById('pwa-banner');
+  if (b) b.remove();
+}
+
+// Show iOS banner if on iPhone/iPad Safari and not already installed
+(function checkIOS() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone === true;
+  const dismissed = localStorage.getItem(BANNER_DISMISSED_KEY);
+  if (isIOS && !isStandalone && !dismissed) {
+    showInstallBanner('ios');
+  }
+})();
+
+// ── SUPABASE ─────────────────────────────────────────────
+const SB_URL = 'https://wkzaebbfhytuauioqjqw.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndremFlYmJmaHl0dWF1aW9xanF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTY2NzgsImV4cCI6MjA5NTU3MjY3OH0.DyrWDmxKqFFhr_geNapCJMlhb2lrpVhCYEQvvGzGjMw';
+
+// Stable user ID stored locally (no login needed)
+function getUserId() {
+  let uid = localStorage.getItem('fitdash_uid');
+  if (!uid) { uid = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('fitdash_uid', uid); }
+  return uid;
+}
+const USER_ID = getUserId();
+
+async function sbFetch(path, opts = {}) {
+  try {
+    const res = await fetch(SB_URL + '/rest/v1/' + path, {
+      ...opts,
+      headers: {
+        'apikey': SB_KEY,
+        'Authorization': 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': opts.prefer || 'return=representation',
+        ...(opts.headers || {})
+      }
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : [];
+  } catch(e) { return null; }
+}
+
+// ── SYNC STATUS UI ───────────────────────────────────────
+function showSyncStatus(state) {
+  let el = document.getElementById('sync-status');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'sync-status';
+    el.style.cssText = 'position:fixed;top:calc(var(--safe-top) + 8px);right:12px;font-size:10px;font-family:DM Mono,monospace;padding:3px 8px;border-radius:20px;z-index:300;transition:all .3s;pointer-events:none;';
+    document.body.appendChild(el);
+  }
+  if (state === 'syncing') { el.style.background='rgba(79,163,232,0.2)'; el.style.color='#4fa3e8'; el.textContent='⟳ syncing'; el.style.opacity='1'; }
+  else if (state === 'ok') { el.style.background='rgba(200,241,53,0.15)'; el.style.color='var(--accent)'; el.textContent='✓ synced'; el.style.opacity='1'; setTimeout(() => { el.style.opacity='0'; }, 2000); }
+  else if (state === 'offline') { el.style.background='rgba(255,95,87,0.15)'; el.style.color='var(--red)'; el.textContent='● offline'; el.style.opacity='1'; }
+}
+
+// ── DATA ─────────────────────────────────────────────────
 const KEY = 'fitdash_v1';
 let S = { todos: [], exercises: [], cardio: [], bodyweights: [] };
 
 function load() { try { const d = localStorage.getItem(KEY); if (d) S = JSON.parse(d); } catch(e) {} }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
 load();
+
+// ── SUPABASE SYNC ────────────────────────────────────────
+let syncTimer = null;
+function scheduleSyncUp() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncUp, 1500);
+}
+
+async function syncUp() {
+  if (!navigator.onLine) { showSyncStatus('offline'); return; }
+  showSyncStatus('syncing');
+  try {
+    // Exercises
+    for (const e of S.exercises.filter(x => !x.synced)) {
+      const r = await sbFetch('exercises', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date }) });
+      if (r && r[0]) { e.synced = true; e.sb_id = r[0].id; }
+    }
+    // Cardio
+    for (const c of S.cardio.filter(x => !x.synced)) {
+      const r = await sbFetch('cardio', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, type: c.type, duration: c.dur, distance: c.dist, date: c.date }) });
+      if (r && r[0]) { c.synced = true; c.sb_id = r[0].id; }
+    }
+    // Bodyweights
+    for (const b of S.bodyweights.filter(x => !x.synced)) {
+      const r = await sbFetch('bodyweights', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, val: b.val, date: b.date }) });
+      if (r && r[0]) { b.synced = true; b.sb_id = r[0].id; }
+    }
+    // Todos
+    for (const t of S.todos.filter(x => !x.synced)) {
+      const r = await sbFetch('todos', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, text: t.text, done: t.done, date: t.date }) });
+      if (r && r[0]) { t.synced = true; t.sb_id = r[0].id; }
+    }
+    // Todo done status updates
+    for (const t of S.todos.filter(x => x.synced && x.sb_id && x._dirty)) {
+      await sbFetch(`todos?id=eq.${t.sb_id}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify({ done: t.done }) });
+      delete t._dirty;
+    }
+    // Habits (upsert by date)
+    const allHabitDates = new Set();
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('habits_')) allHabitDates.add(k.replace('habits_', ''));
+    }
+    for (const date of allHabitDates) {
+      const habit_ids = getHabitsDoneFor(date);
+      await sbFetch('habits', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: USER_ID, date, habit_ids }) });
+    }
+    save();
+    showSyncStatus('ok');
+  } catch(e) { showSyncStatus('offline'); }
+}
+
+async function syncDown() {
+  if (!navigator.onLine) { showSyncStatus('offline'); return; }
+  showSyncStatus('syncing');
+  try {
+    const [exData, cardioData, bwData, todoData, habitData] = await Promise.all([
+      sbFetch(`exercises?user_id=eq.${USER_ID}&order=created_at.desc&limit=200`),
+      sbFetch(`cardio?user_id=eq.${USER_ID}&order=created_at.desc&limit=200`),
+      sbFetch(`bodyweights?user_id=eq.${USER_ID}&order=created_at.desc&limit=100`),
+      sbFetch(`todos?user_id=eq.${USER_ID}&order=created_at.desc&limit=200`),
+      sbFetch(`habits?user_id=eq.${USER_ID}&limit=500`),
+    ]);
+
+    if (exData) S.exercises = exData.map(e => ({ id: e.id, sb_id: e.id, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date, synced: true }));
+    if (cardioData) S.cardio = cardioData.map(c => ({ id: c.id, sb_id: c.id, type: c.type, dur: c.duration, dist: c.distance, date: c.date, synced: true }));
+    if (bwData) S.bodyweights = bwData.map(b => ({ id: b.id, sb_id: b.id, val: b.val, date: b.date, synced: true }));
+    if (todoData) S.todos = todoData.map(t => ({ id: t.id, sb_id: t.id, text: t.text, done: t.done, date: t.date, synced: true }));
+    if (habitData) {
+      habitData.forEach(h => {
+        try { localStorage.setItem('habits_' + h.date, JSON.stringify(h.habit_ids)); } catch(e) {}
+      });
+    }
+
+    save();
+    showSyncStatus('ok');
+    renderDashboard();
+    renderTodos();
+    renderExLog(); renderCardioLog(); renderBWChart();
+    renderCalendar();
+  } catch(e) { showSyncStatus('offline'); }
+}
+
+// Sync on visibility change (switching tabs/apps)
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncDown(); });
+window.addEventListener('online', () => { showSyncStatus('syncing'); syncDown(); syncUp(); });
+window.addEventListener('offline', () => showSyncStatus('offline'));
 
 // ── HABITS ──────────────────────────────────────────────
 const HABITS = [
@@ -733,6 +1053,7 @@ function toggleHabit(id) {
   else done.push(id);
   try { localStorage.setItem(key, JSON.stringify(done)); } catch(e) {}
   renderTodos(); renderDashboard();
+  scheduleSyncUp();
 }
 
 // ── VIEWS ────────────────────────────────────────────────
@@ -771,18 +1092,20 @@ function addTodo() {
   const inp = document.getElementById('todo-input');
   const txt = inp.value.trim();
   if (!txt) return;
-  S.todos.unshift({ id: Date.now(), text: txt, done: false, date: todayStr() });
+  S.todos.unshift({ id: Date.now(), text: txt, done: false, date: todayStr(), synced: false });
   inp.value = '';
-  save(); renderTodos(); renderDashboard();
+  save(); renderTodos(); renderDashboard(); scheduleSyncUp();
 }
 
 function toggleTodo(id) {
   const t = S.todos.find(x => x.id === id);
-  if (t) t.done = !t.done;
-  save(); renderTodos(); renderDashboard();
+  if (t) { t.done = !t.done; if (t.synced) t._dirty = true; }
+  save(); renderTodos(); renderDashboard(); scheduleSyncUp();
 }
 
 function deleteTodo(id) {
+  const t = S.todos.find(x => x.id === id);
+  if (t && t.sb_id) sbFetch(`todos?id=eq.${t.sb_id}`, { method: 'DELETE', prefer: 'return=minimal' });
   S.todos = S.todos.filter(x => x.id !== id);
   save(); renderTodos(); renderDashboard();
 }
@@ -828,12 +1151,17 @@ function logExercise() {
   if (!name || !sets || !reps) { shake('ex-name'); return; }
   const prev = S.exercises.filter(e => e.name.toLowerCase() === name.toLowerCase() && e.weight > 0);
   const pr = weight > 0 && (!prev.length || weight > Math.max(...prev.map(e => e.weight)));
-  S.exercises.unshift({ id: Date.now(), name, sets, reps, weight, pr, date: todayStr() });
-  save(); renderExLog(); renderDashboard();
+  S.exercises.unshift({ id: Date.now(), name, sets, reps, weight, pr, date: todayStr(), synced: false });
+  save(); renderExLog(); renderDashboard(); scheduleSyncUp();
   ['ex-name','ex-sets','ex-reps','ex-weight'].forEach(id => document.getElementById(id).value = '');
 }
 
-function deleteExercise(id) { S.exercises = S.exercises.filter(x => x.id !== id); save(); renderExLog(); renderDashboard(); }
+function deleteExercise(id) {
+  const e = S.exercises.find(x => x.id === id);
+  if (e && e.sb_id) sbFetch(`exercises?id=eq.${e.sb_id}`, { method: 'DELETE', prefer: 'return=minimal' });
+  S.exercises = S.exercises.filter(x => x.id !== id);
+  save(); renderExLog(); renderDashboard();
+}
 
 function renderExLog() {
   const el = document.getElementById('ex-log');
@@ -857,13 +1185,18 @@ function logCardio() {
   const dur = parseInt(document.getElementById('cardio-dur').value) || 0;
   const dist = parseFloat(document.getElementById('cardio-dist').value) || 0;
   if (!dur) { shake('cardio-dur'); return; }
-  S.cardio.unshift({ id: Date.now(), type, dur, dist, date: todayStr() });
-  save(); renderCardioLog(); renderDashboard();
+  S.cardio.unshift({ id: Date.now(), type, dur, dist, date: todayStr(), synced: false });
+  save(); renderCardioLog(); renderDashboard(); scheduleSyncUp();
   document.getElementById('cardio-dur').value = '';
   document.getElementById('cardio-dist').value = '';
 }
 
-function deleteCardio(id) { S.cardio = S.cardio.filter(x => x.id !== id); save(); renderCardioLog(); renderDashboard(); }
+function deleteCardio(id) {
+  const c = S.cardio.find(x => x.id === id);
+  if (c && c.sb_id) sbFetch(`cardio?id=eq.${c.sb_id}`, { method: 'DELETE', prefer: 'return=minimal' });
+  S.cardio = S.cardio.filter(x => x.id !== id);
+  save(); renderCardioLog(); renderDashboard();
+}
 
 function renderCardioLog() {
   const el = document.getElementById('cardio-log');
@@ -885,8 +1218,8 @@ function renderCardioLog() {
 function logBodyweight() {
   const val = parseFloat(document.getElementById('bw-val').value);
   if (!val || val < 20 || val > 300) { shake('bw-val'); return; }
-  S.bodyweights.unshift({ id: Date.now(), val, date: todayStr() });
-  save(); renderBWChart(); renderDashboard();
+  S.bodyweights.unshift({ id: Date.now(), val, date: todayStr(), synced: false });
+  save(); renderBWChart(); renderDashboard(); scheduleSyncUp();
   document.getElementById('bw-val').value = '';
 }
 
@@ -998,7 +1331,6 @@ function renderCalendar() {
   const todayFmt = fmtDate(now);
 
   const firstDay = new Date(calYear, calMonth, 1);
-  // Monday-based: Mon=0 … Sun=6
   let startOffset = firstDay.getDay() - 1;
   if (startOffset < 0) startOffset = 6;
 
@@ -1013,9 +1345,7 @@ function renderCalendar() {
     const isToday = dateStr === todayFmt;
     const isFuture = dateObj > now && !isToday;
     const dots = getDotsForDate(dateStr);
-
     const dotsHtml = dots.map(c => `<div class="cal-dot" style="background:${c}"></div>`).join('');
-
     html += `<div class="cal-day${isToday?' today':''}${isFuture?' future':''}" onclick="openDayModal('${dateStr}')">
       <div class="cal-day-num">${d}</div>
       <div class="cal-dots">${dotsHtml}</div>
@@ -1042,8 +1372,6 @@ function openDayModal(dateStr) {
   document.getElementById('modal-sub').textContent = isToday ? 'Today' : '';
 
   let body = '';
-
-  // Habits
   body += '<div class="modal-section-title">Habits</div>';
   body += HABITS.map(h => {
     const done = habits.includes(h.id);
@@ -1055,7 +1383,6 @@ function openDayModal(dateStr) {
     </div>`;
   }).join('');
 
-  // Gym exercises
   if (exercises.length || cardios.length) {
     body += '<div class="modal-section-title">Gym session</div>';
     exercises.forEach(e => {
@@ -1072,13 +1399,11 @@ function openDayModal(dateStr) {
     });
   }
 
-  // Body weight
   if (bwEntry) {
     body += '<div class="modal-section-title">Body weight</div>';
     body += `<div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span></div>`;
   }
 
-  // Nothing at all
   if (!habits.length && !exercises.length && !cardios.length && !bwEntry) {
     body += '<div class="empty" style="padding:30px 0">No activity logged</div>';
   }
@@ -1093,7 +1418,6 @@ function closeModal(e) {
   document.getElementById('modal-overlay').classList.remove('open');
 }
 
-// close on overlay background tap
 document.getElementById('modal-overlay').addEventListener('click', function(e) {
   if (e.target === this) this.classList.remove('open');
 });
@@ -1116,6 +1440,7 @@ function shake(id) {
 // ── INIT ─────────────────────────────────────────────────
 initDateTime();
 renderDashboard();
+syncDown();
 </script>
 </body>
 </html>
