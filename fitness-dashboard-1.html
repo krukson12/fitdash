@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FitDash">
+<title>FitDash</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0e0e10;
+  --bg2: #17171a;
+  --bg3: #1f1f23;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --text: #f0f0f0;
+  --text2: #8a8a95;
+  --text3: #555560;
+  --accent: #c8f135;
+  --accent2: #a8d020;
+  --accent-dim: rgba(200,241,53,0.12);
+  --red: #ff5f57;
+  --blue: #4fa3e8;
+  --blue-dim: rgba(79,163,232,0.12);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --c-steps: #22c55e;
+  --c-gym: #ef4444;
+  --c-situps: #f97316;
+  --c-pushups: #a78bfa;
+  --c-pullups: #38bdf8;
+  --c-reading: #fbbf24;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
+  overscroll-behavior: none;
+}
+
+.app {
+  max-width: 430px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* NAV */
+.nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 430px;
+  padding: 8px 12px calc(8px + var(--safe-bottom));
+  background: rgba(14,14,16,0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 0.5px solid var(--border);
+  display: flex;
+  gap: 2px;
+  z-index: 100;
+}
+
+.nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 2px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all .2s;
+}
+
+.nav-btn svg { width: 20px; height: 20px; stroke-width: 1.8; }
+.nav-btn.active { color: var(--accent); }
+.nav-btn.active svg { filter: drop-shadow(0 0 5px var(--accent)); }
+
+.scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: calc(var(--safe-top) + 16px);
+  padding-bottom: calc(80px + var(--safe-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+
+.view { display: none; padding: 0 14px; }
+.view.active { display: block; }
+
+.page-header { margin-bottom: 20px; }
+.page-title { font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
+.page-sub { font-size: 13px; color: var(--text2); margin-top: 2px; font-family: 'DM Mono', monospace; }
+
+.card {
+  background: var(--bg2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
+.card-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title svg { width: 13px; height: 13px; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.stat-card {
+  background: var(--bg3);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.stat-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+.stat-val { font-size: 24px; font-weight: 600; font-family: 'DM Mono', monospace; color: var(--text); letter-spacing: -1px; line-height: 1; }
+.stat-unit { font-size: 12px; color: var(--text2); font-weight: 400; font-family: 'DM Sans', sans-serif; letter-spacing: 0; }
+.stat-card.accent { background: var(--accent-dim); border-color: rgba(200,241,53,0.2); }
+.stat-card.accent .stat-val { color: var(--accent); }
+.stat-card.blue { background: var(--blue-dim); border-color: rgba(79,163,232,0.2); }
+.stat-card.blue .stat-val { color: var(--blue); }
+
+input, select {
+  background: var(--bg3);
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  padding: 10px 12px;
+  width: 100%;
+  outline: none;
+  transition: border-color .2s;
+  -webkit-appearance: none;
+}
+input:focus, select:focus { border-color: var(--accent); }
+input::placeholder { color: var(--text3); }
+select option { background: var(--bg3); }
+
+.field-group { margin-bottom: 10px; }
+.field-label { font-size: 12px; color: var(--text2); margin-bottom: 5px; display: block; font-weight: 500; }
+.field-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+
+.btn-primary {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  color: #0e0e10;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  margin-top: 4px;
+}
+.btn-primary:active { transform: scale(0.98); background: var(--accent2); }
+
+.todo-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.todo-input-row input { flex: 1; }
+.todo-add-btn {
+  padding: 10px 14px;
+  background: var(--accent);
+  color: #0e0e10;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all .15s;
+  line-height: 1;
+}
+.todo-add-btn:active { transform: scale(0.95); }
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.todo-item:last-child { border-bottom: none; padding-bottom: 0; }
+.todo-item:first-child { padding-top: 0; }
+
+.todo-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all .2s;
+}
+.todo-check.done { background: var(--accent); border-color: var(--accent); }
+.todo-check svg { width: 12px; height: 12px; stroke: #0e0e10; display: none; }
+.todo-check.done svg { display: block; }
+.todo-text { flex: 1; font-size: 14px; color: var(--text); transition: all .2s; line-height: 1.4; }
+.todo-text.done { color: var(--text3); text-decoration: line-through; }
+.todo-del { color: var(--text3); cursor: pointer; font-size: 20px; padding: 0 2px; line-height: 1; }
+.todo-del:active { color: var(--red); }
+
+.gym-tabs { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.gym-tabs::-webkit-scrollbar { display: none; }
+.gym-tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  border: 0.5px solid var(--border2);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+.gym-tab.active { background: var(--accent); color: #0e0e10; border-color: var(--accent); }
+
+.log-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.log-entry:last-child { border-bottom: none; padding-bottom: 0; }
+.log-entry:first-child { padding-top: 0; }
+.log-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.log-meta { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; margin-top: 2px; }
+.log-del { color: var(--text3); cursor: pointer; font-size: 18px; padding: 4px 0 4px 10px; }
+.log-del:active { color: var(--red); }
+.pr-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; background: var(--accent-dim); color: var(--accent); border-radius: 20px; margin-left: 6px; }
+
+.bw-summary { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; }
+.bw-main { font-size: 38px; font-weight: 600; font-family: 'DM Mono', monospace; letter-spacing: -2px; color: var(--accent); }
+.bw-kg { font-size: 16px; color: var(--text2); margin-left: 4px; }
+.bw-diff { font-size: 13px; color: var(--text2); font-family: 'DM Mono', monospace; }
+.bw-diff.up { color: var(--red); }
+.bw-diff.down { color: var(--accent); }
+.bw-chart { display: flex; gap: 5px; align-items: flex-end; height: 80px; }
+.bw-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; }
+.bw-bar { width: 100%; border-radius: 3px 3px 0 0; background: var(--accent-dim); min-height: 4px; }
+.bw-bar.latest { background: var(--accent); }
+.bw-bar-label { font-size: 9px; color: var(--text3); font-family: 'DM Mono', monospace; white-space: nowrap; }
+
+.empty { text-align: center; color: var(--text3); font-size: 13px; padding: 20px 0 6px; }
+.section-divider { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; font-weight: 500; margin: 14px 0 8px; }
+
+/* ===== CALENDAR ===== */
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.cal-month-label {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+.cal-nav-btn {
+  width: 34px;
+  height: 34px;
+  border: 0.5px solid var(--border2);
+  border-radius: 50%;
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.cal-nav-btn:active { background: var(--bg2); }
+
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 6px;
+}
+.cal-wd {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text3);
+  font-weight: 500;
+  padding: 4px 0;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.cal-day {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 5px;
+  cursor: pointer;
+  position: relative;
+  transition: background .15s;
+  overflow: hidden;
+}
+.cal-day:active { opacity: .7; }
+.cal-day.empty { pointer-events: none; }
+.cal-day.today .cal-day-num { color: var(--accent); font-weight: 600; }
+.cal-day.future { opacity: .3; pointer-events: none; }
+
+.cal-day-num {
+  font-size: 12px;
+  color: var(--text2);
+  font-family: 'DM Mono', monospace;
+  line-height: 1;
+  z-index: 1;
+  position: relative;
+}
+
+.cal-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 3px;
+  padding: 0 2px;
+  z-index: 1;
+  position: relative;
+}
+.cal-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--border);
+}
+.cal-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text2);
+}
+.cal-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* ===== DAY MODAL ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: var(--safe-bottom);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+
+.modal-sheet {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  background: var(--bg2);
+  border-radius: 20px 20px 0 0;
+  border-top: 0.5px solid var(--border2);
+  padding: 20px 16px calc(20px + var(--safe-bottom));
+  max-height: 80dvh;
+  overflow-y: auto;
+  transform: translateY(30px);
+  transition: transform .25s cubic-bezier(.4,0,.2,1);
+}
+.modal-overlay.open .modal-sheet { transform: translateY(0); }
+
+.modal-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--border2);
+  border-radius: 2px;
+  margin: 0 auto 18px;
+}
+
+.modal-date {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+
+.modal-sub {
+  font-size: 12px;
+  color: var(--text2);
+  font-family: 'DM Mono', monospace;
+  margin-bottom: 18px;
+}
+
+.modal-section-title {
+  font-size: 11px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 500;
+  margin: 14px 0 8px;
+}
+
+.modal-habit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 14px;
+}
+.modal-habit-row:last-child { border-bottom: none; }
+
+.modal-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.modal-dot.off { background: var(--bg3); border: 1px solid var(--border2); }
+
+.modal-ex-row {
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+}
+.modal-ex-row:last-child { border-bottom: none; }
+.modal-ex-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.modal-ex-meta { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; margin-top: 2px; }
+
+.modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: 0.5px solid var(--border2);
+  color: var(--text2);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="scroll-area">
+
+    <!-- DASHBOARD -->
+    <div class="view active" id="view-dashboard">
+      <div class="page-header">
+        <div class="page-title" id="greeting">Good morning</div>
+        <div class="page-sub" id="datestr"></div>
+      </div>
+      <div class="stat-grid" id="dash-stats"></div>
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"/></svg>
+          Today's habits
+        </div>
+        <div id="dash-todo-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6.5 6.5h11M6.5 17.5h11M3 12h18"/></svg>
+          Recent gym
+        </div>
+        <div id="dash-gym-list"></div>
+      </div>
+    </div>
+
+    <!-- HABITS -->
+    <div class="view" id="view-todos">
+      <div class="page-header">
+        <div class="page-title">Daily habits</div>
+        <div class="page-sub" id="todo-count-label"></div>
+      </div>
+      <div class="card" id="habits-card">
+        <div id="habit-list"></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:10px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add custom task
+        </div>
+        <div class="todo-input-row">
+          <input id="todo-input" placeholder="One-off task..." onkeydown="if(event.key==='Enter')addTodo()">
+          <button class="todo-add-btn" onclick="addTodo()">+</button>
+        </div>
+        <div id="todo-list"></div>
+      </div>
+    </div>
+
+    <!-- GYM -->
+    <div class="view" id="view-gym">
+      <div class="page-header">
+        <div class="page-title">Gym</div>
+        <div class="page-sub" id="gym-date-label"></div>
+      </div>
+      <div class="gym-tabs">
+        <button class="gym-tab active" onclick="switchGymTab('exercise',this)">Exercise</button>
+        <button class="gym-tab" onclick="switchGymTab('cardio',this)">Cardio</button>
+        <button class="gym-tab" onclick="switchGymTab('bodyweight',this)">Body weight</button>
+      </div>
+      <div id="gtab-exercise">
+        <div class="card">
+          <div class="field-group">
+            <label class="field-label">Exercise name</label>
+            <input id="ex-name" placeholder="e.g. Bench press">
+          </div>
+          <div class="field-row-3">
+            <div class="field-group">
+              <label class="field-label">Sets</label>
+              <input id="ex-sets" type="number" min="1" max="20" placeholder="3">
+            </div>
+            <div class="field-group">
+              <label class="field-label">Reps</label>
+              <input id="ex-reps" type="number" min="1" max="100" placeholder="10">
+            </div>
+            <div class="field-group">
+              <label class="field-label">kg</label>
+              <input id="ex-weight" type="number" min="0" max="500" step="0.5" placeholder="60">
+            </div>
+          </div>
+          <button class="btn-primary" onclick="logExercise()">Log exercise</button>
+        </div>
+        <div class="card" id="ex-log-card" style="display:none">
+          <div class="section-divider">History</div>
+          <div id="ex-log"></div>
+        </div>
+      </div>
+      <div id="gtab-cardio" style="display:none">
+        <div class="card">
+          <div class="field-group">
+            <label class="field-label">Type</label>
+            <select id="cardio-type">
+              <option>Running</option><option>Cycling</option><option>Rowing</option>
+              <option>Swimming</option><option>Walking</option><option>Other</option>
+            </select>
+          </div>
+          <div class="field-row-2">
+            <div class="field-group">
+              <label class="field-label">Duration (min)</label>
+              <input id="cardio-dur" type="number" min="1" max="600" placeholder="30">
+            </div>
+            <div class="field-group">
+              <label class="field-label">Distance (km)</label>
+              <input id="cardio-dist" type="number" min="0" max="500" step="0.1" placeholder="5">
+            </div>
+          </div>
+          <button class="btn-primary" onclick="logCardio()">Log cardio</button>
+        </div>
+        <div class="card" id="cardio-log-card" style="display:none">
+          <div class="section-divider">History</div>
+          <div id="cardio-log"></div>
+        </div>
+      </div>
+      <div id="gtab-bodyweight" style="display:none">
+        <div class="card">
+          <div class="field-group">
+            <label class="field-label">Today's weight (kg)</label>
+            <input id="bw-val" type="number" min="20" max="300" step="0.1" placeholder="75.0">
+          </div>
+          <button class="btn-primary" onclick="logBodyweight()">Log weight</button>
+        </div>
+        <div class="card" id="bw-chart-card" style="display:none">
+          <div id="bw-summary-area"></div>
+          <div class="section-divider">Last 7 entries</div>
+          <div class="bw-chart" id="bw-chart"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CALENDAR / HISTORY -->
+    <div class="view" id="view-calendar">
+      <div class="page-header">
+        <div class="page-title">History</div>
+        <div class="page-sub">Tap any day to see details</div>
+      </div>
+      <div class="card">
+        <div class="cal-header">
+          <button class="cal-nav-btn" onclick="calPrev()">&#8249;</button>
+          <div class="cal-month-label" id="cal-month-label"></div>
+          <button class="cal-nav-btn" onclick="calNext()">&#8250;</button>
+        </div>
+        <div class="cal-weekdays">
+          <div class="cal-wd">Mo</div><div class="cal-wd">Tu</div><div class="cal-wd">We</div>
+          <div class="cal-wd">Th</div><div class="cal-wd">Fr</div><div class="cal-wd">Sa</div><div class="cal-wd">Su</div>
+        </div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-legend">
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-steps)"></div>10k steps</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-gym)"></div>Gym session</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-situps)"></div>Sit-ups</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-pushups)"></div>Push-ups</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-pullups)"></div>Pull-ups</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-reading)"></div>Reading</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="nav">
+    <button class="nav-btn active" onclick="switchView('dashboard',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      Dashboard
+    </button>
+    <button class="nav-btn" onclick="switchView('todos',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+      Habits
+    </button>
+    <button class="nav-btn" onclick="switchView('gym',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 6.5h11M6.5 17.5h11"/><path d="M3 12h18"/><path d="M3 10v4M21 10v4"/><path d="M1 12h2M21 12h2"/>
+      </svg>
+      Gym
+    </button>
+    <button class="nav-btn" onclick="switchView('calendar',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      History
+    </button>
+  </nav>
+</div>
+
+<!-- DAY DETAIL MODAL -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-sheet" style="position:relative">
+    <div class="modal-handle"></div>
+    <button class="modal-close" onclick="closeModal()">×</button>
+    <div class="modal-date" id="modal-date"></div>
+    <div class="modal-sub" id="modal-sub"></div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const KEY = 'fitdash_v1';
+let S = { todos: [], exercises: [], cardio: [], bodyweights: [] };
+
+function load() { try { const d = localStorage.getItem(KEY); if (d) S = JSON.parse(d); } catch(e) {} }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
+load();
+
+// ── HABITS ──────────────────────────────────────────────
+const HABITS = [
+  { id: 'steps',   label: '10,000 steps', icon: '👟', color: 'var(--c-steps)'   },
+  { id: 'situps',  label: 'Sit-ups',      icon: '🔥', color: 'var(--c-situps)'  },
+  { id: 'pushups', label: 'Push-ups',     icon: '💪', color: 'var(--c-pushups)' },
+  { id: 'pullups', label: 'Pull-ups',     icon: '🏋️', color: 'var(--c-pullups)' },
+  { id: 'reading', label: 'Book reading', icon: '📖', color: 'var(--c-reading)' },
+];
+
+function habitsKey(dateStr) { return 'habits_' + dateStr; }
+
+function getHabitsDoneFor(dateStr) {
+  try { return JSON.parse(localStorage.getItem(habitsKey(dateStr)) || '[]'); } catch(e) { return []; }
+}
+
+function todayStr() { return fmtDate(new Date()); }
+
+function toggleHabit(id) {
+  const key = habitsKey(todayStr());
+  let done = getHabitsDoneFor(todayStr());
+  if (done.includes(id)) done = done.filter(x => x !== id);
+  else done.push(id);
+  try { localStorage.setItem(key, JSON.stringify(done)); } catch(e) {}
+  renderTodos(); renderDashboard();
+}
+
+// ── VIEWS ────────────────────────────────────────────────
+function switchView(v, btn) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-' + v).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (v === 'dashboard') renderDashboard();
+  if (v === 'todos') renderTodos();
+  if (v === 'gym') { renderExLog(); renderCardioLog(); renderBWChart(); }
+  if (v === 'calendar') renderCalendar();
+}
+
+function switchGymTab(t, btn) {
+  document.querySelectorAll('.gym-tab').forEach(b => b.classList.remove('active'));
+  ['exercise','cardio','bodyweight'].forEach(id => { const el = document.getElementById('gtab-'+id); if (el) el.style.display='none'; });
+  if (btn) btn.classList.add('active');
+  const tab = document.getElementById('gtab-'+t);
+  if (tab) tab.style.display = 'block';
+}
+
+// ── DATE/TIME ────────────────────────────────────────────
+function initDateTime() {
+  const now = new Date();
+  const h = now.getHours();
+  const greet = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  const dateStr = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  const el = document.getElementById('greeting'); if (el) el.textContent = greet;
+  const ds = document.getElementById('datestr'); if (ds) ds.textContent = dateStr;
+  const gl = document.getElementById('gym-date-label'); if (gl) gl.textContent = dateStr;
+}
+
+// ── TODOS / HABITS ───────────────────────────────────────
+function addTodo() {
+  const inp = document.getElementById('todo-input');
+  const txt = inp.value.trim();
+  if (!txt) return;
+  S.todos.unshift({ id: Date.now(), text: txt, done: false, date: todayStr() });
+  inp.value = '';
+  save(); renderTodos(); renderDashboard();
+}
+
+function toggleTodo(id) {
+  const t = S.todos.find(x => x.id === id);
+  if (t) t.done = !t.done;
+  save(); renderTodos(); renderDashboard();
+}
+
+function deleteTodo(id) {
+  S.todos = S.todos.filter(x => x.id !== id);
+  save(); renderTodos(); renderDashboard();
+}
+
+function renderTodos() {
+  const done = getHabitsDoneFor(todayStr());
+  const label = document.getElementById('todo-count-label');
+  if (label) label.textContent = `${done.length} of ${HABITS.length} habits done today`;
+
+  const hel = document.getElementById('habit-list');
+  if (hel) {
+    hel.innerHTML = HABITS.map(h => {
+      const isDone = done.includes(h.id);
+      return `<div class="todo-item" onclick="toggleHabit('${h.id}')" style="cursor:pointer">
+        <div class="todo-check ${isDone?'done':''}" role="checkbox" aria-checked="${isDone}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span style="font-size:18px;flex-shrink:0">${h.icon}</span>
+        <span class="todo-text ${isDone?'done':''}">${h.label}</span>
+      </div>`;
+    }).join('');
+  }
+
+  const el = document.getElementById('todo-list');
+  if (!el) return;
+  const tods = S.todos.filter(t => t.date === todayStr());
+  el.innerHTML = tods.length ? tods.map(t => `
+    <div class="todo-item">
+      <div class="todo-check ${t.done?'done':''}" onclick="toggleTodo(${t.id})" role="checkbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <span class="todo-text ${t.done?'done':''}">${escHtml(t.text)}</span>
+      <span class="todo-del" onclick="deleteTodo(${t.id})">×</span>
+    </div>`).join('') : '';
+}
+
+// ── EXERCISES ────────────────────────────────────────────
+function logExercise() {
+  const name = document.getElementById('ex-name').value.trim();
+  const sets = parseInt(document.getElementById('ex-sets').value) || 0;
+  const reps = parseInt(document.getElementById('ex-reps').value) || 0;
+  const weight = parseFloat(document.getElementById('ex-weight').value) || 0;
+  if (!name || !sets || !reps) { shake('ex-name'); return; }
+  const prev = S.exercises.filter(e => e.name.toLowerCase() === name.toLowerCase() && e.weight > 0);
+  const pr = weight > 0 && (!prev.length || weight > Math.max(...prev.map(e => e.weight)));
+  S.exercises.unshift({ id: Date.now(), name, sets, reps, weight, pr, date: todayStr() });
+  save(); renderExLog(); renderDashboard();
+  ['ex-name','ex-sets','ex-reps','ex-weight'].forEach(id => document.getElementById(id).value = '');
+}
+
+function deleteExercise(id) { S.exercises = S.exercises.filter(x => x.id !== id); save(); renderExLog(); renderDashboard(); }
+
+function renderExLog() {
+  const el = document.getElementById('ex-log');
+  const card = document.getElementById('ex-log-card');
+  if (!el || !card) return;
+  if (!S.exercises.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  el.innerHTML = S.exercises.slice(0, 30).map(e => `
+    <div class="log-entry">
+      <div>
+        <div class="log-name">${escHtml(e.name)}${e.pr ? '<span class="pr-badge">PR</span>' : ''}</div>
+        <div class="log-meta">${e.sets}×${e.reps}${e.weight ? ' @ '+e.weight+' kg' : ''} · ${e.date}</div>
+      </div>
+      <span class="log-del" onclick="deleteExercise(${e.id})">×</span>
+    </div>`).join('');
+}
+
+// ── CARDIO ───────────────────────────────────────────────
+function logCardio() {
+  const type = document.getElementById('cardio-type').value;
+  const dur = parseInt(document.getElementById('cardio-dur').value) || 0;
+  const dist = parseFloat(document.getElementById('cardio-dist').value) || 0;
+  if (!dur) { shake('cardio-dur'); return; }
+  S.cardio.unshift({ id: Date.now(), type, dur, dist, date: todayStr() });
+  save(); renderCardioLog(); renderDashboard();
+  document.getElementById('cardio-dur').value = '';
+  document.getElementById('cardio-dist').value = '';
+}
+
+function deleteCardio(id) { S.cardio = S.cardio.filter(x => x.id !== id); save(); renderCardioLog(); renderDashboard(); }
+
+function renderCardioLog() {
+  const el = document.getElementById('cardio-log');
+  const card = document.getElementById('cardio-log-card');
+  if (!el || !card) return;
+  if (!S.cardio.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  el.innerHTML = S.cardio.slice(0, 30).map(c => `
+    <div class="log-entry">
+      <div>
+        <div class="log-name">${escHtml(c.type)}</div>
+        <div class="log-meta">${c.dur} min${c.dist ? ' · '+c.dist+' km' : ''} · ${c.date}</div>
+      </div>
+      <span class="log-del" onclick="deleteCardio(${c.id})">×</span>
+    </div>`).join('');
+}
+
+// ── BODY WEIGHT ──────────────────────────────────────────
+function logBodyweight() {
+  const val = parseFloat(document.getElementById('bw-val').value);
+  if (!val || val < 20 || val > 300) { shake('bw-val'); return; }
+  S.bodyweights.unshift({ id: Date.now(), val, date: todayStr() });
+  save(); renderBWChart(); renderDashboard();
+  document.getElementById('bw-val').value = '';
+}
+
+function renderBWChart() {
+  const card = document.getElementById('bw-chart-card');
+  const chart = document.getElementById('bw-chart');
+  const summary = document.getElementById('bw-summary-area');
+  if (!card || !chart || !summary) return;
+  if (!S.bodyweights.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const latest = S.bodyweights[0];
+  const prev = S.bodyweights[1];
+  const diff = prev ? (latest.val - prev.val) : null;
+  const diffStr = diff !== null ? (diff >= 0 ? '+' : '') + diff.toFixed(1) + ' kg' : '—';
+  const diffClass = diff === null ? '' : diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+  summary.innerHTML = `<div class="bw-summary"><div><span class="bw-main">${latest.val}</span><span class="bw-kg">kg</span></div><div class="bw-diff ${diffClass}">${diffStr} from last</div></div>`;
+  const data = S.bodyweights.slice(0, 7).reverse();
+  const vals = data.map(d => d.val);
+  const min = Math.min(...vals) - 2; const max = Math.max(...vals) + 2; const range = max - min || 1;
+  chart.innerHTML = data.map((d, i) => {
+    const pct = Math.round(((d.val - min) / range) * 68) + 8;
+    const isLatest = i === data.length - 1;
+    const lbl = d.date.split('/').slice(0, 2).join('/');
+    return `<div class="bw-bar-wrap"><div class="bw-bar ${isLatest?'latest':''}" style="height:${pct}px"></div><div class="bw-bar-label">${lbl}</div></div>`;
+  }).join('');
+}
+
+// ── DASHBOARD ────────────────────────────────────────────
+function renderDashboard() {
+  const habitsDone = getHabitsDoneFor(todayStr());
+  const todayEx = S.exercises.filter(e => e.date === todayStr()).length;
+  const bw = S.bodyweights[0];
+  const prs = S.exercises.filter(e => e.pr).length;
+  const allDone = habitsDone.length === HABITS.length;
+
+  document.getElementById('dash-stats').innerHTML = `
+    <div class="stat-card ${allDone ? 'accent' : ''}">
+      <div class="stat-label">Habits done</div>
+      <div class="stat-val">${habitsDone.length}<span class="stat-unit"> / ${HABITS.length}</span></div>
+    </div>
+    <div class="stat-card ${todayEx > 0 ? 'blue' : ''}">
+      <div class="stat-label">Exercises today</div>
+      <div class="stat-val">${todayEx}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Body weight</div>
+      <div class="stat-val">${bw ? bw.val : '—'}<span class="stat-unit">${bw ? ' kg' : ''}</span></div>
+    </div>
+    <div class="stat-card ${prs > 0 ? 'accent' : ''}">
+      <div class="stat-label">PRs set</div>
+      <div class="stat-val">${prs}</div>
+    </div>`;
+
+  const tl = document.getElementById('dash-todo-list');
+  tl.innerHTML = HABITS.map(h => {
+    const isDone = habitsDone.includes(h.id);
+    return `<div class="todo-item" onclick="toggleHabit('${h.id}')" style="cursor:pointer">
+      <div class="todo-check ${isDone?'done':''}" role="checkbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <span style="font-size:16px;flex-shrink:0">${h.icon}</span>
+      <span class="todo-text ${isDone?'done':''}">${h.label}</span>
+    </div>`;
+  }).join('');
+
+  const gl = document.getElementById('dash-gym-list');
+  const recent = [
+    ...S.exercises.slice(0, 3).map(e => ({ name: e.name + (e.pr ? ' 🏅' : ''), meta: `${e.sets}×${e.reps}${e.weight ? ' @ '+e.weight+' kg' : ''} · ${e.date}` })),
+    ...S.cardio.slice(0, 2).map(c => ({ name: c.type, meta: `${c.dur} min${c.dist ? ' · '+c.dist+' km' : ''} · ${c.date}` }))
+  ].slice(0, 4);
+  gl.innerHTML = recent.length ? recent.map(r => `<div class="log-entry"><div><div class="log-name">${escHtml(r.name)}</div><div class="log-meta">${r.meta}</div></div></div>`).join('') : '<div class="empty">No gym activity yet</div>';
+}
+
+// ── CALENDAR ─────────────────────────────────────────────
+let calYear, calMonth;
+(function() { const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth(); })();
+
+function calPrev() { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); }
+function calNext() {
+  const now = new Date();
+  if (calYear < now.getFullYear() || (calYear === now.getFullYear() && calMonth < now.getMonth())) {
+    calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderCalendar();
+  }
+}
+
+function getDotsForDate(dateStr) {
+  const dots = [];
+  const habits = getHabitsDoneFor(dateStr);
+  const HABIT_META = {
+    steps:   { color: 'var(--c-steps)'   },
+    situps:  { color: 'var(--c-situps)'  },
+    pushups: { color: 'var(--c-pushups)' },
+    pullups: { color: 'var(--c-pullups)' },
+    reading: { color: 'var(--c-reading)' },
+  };
+  habits.forEach(id => { if (HABIT_META[id]) dots.push(HABIT_META[id].color); });
+  const hasGym = S.exercises.some(e => e.date === dateStr) || S.cardio.some(c => c.date === dateStr);
+  if (hasGym) dots.push('var(--c-gym)');
+  return dots;
+}
+
+function renderCalendar() {
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cal-month-label').textContent = monthNames[calMonth] + ' ' + calYear;
+
+  const grid = document.getElementById('cal-grid');
+  const now = new Date();
+  const todayFmt = fmtDate(now);
+
+  const firstDay = new Date(calYear, calMonth, 1);
+  // Monday-based: Mon=0 … Sun=6
+  let startOffset = firstDay.getDay() - 1;
+  if (startOffset < 0) startOffset = 6;
+
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  let html = '';
+
+  for (let i = 0; i < startOffset; i++) html += '<div class="cal-day empty"></div>';
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateObj = new Date(calYear, calMonth, d);
+    const dateStr = fmtDate(dateObj);
+    const isToday = dateStr === todayFmt;
+    const isFuture = dateObj > now && !isToday;
+    const dots = getDotsForDate(dateStr);
+
+    const dotsHtml = dots.map(c => `<div class="cal-dot" style="background:${c}"></div>`).join('');
+
+    html += `<div class="cal-day${isToday?' today':''}${isFuture?' future':''}" onclick="openDayModal('${dateStr}')">
+      <div class="cal-day-num">${d}</div>
+      <div class="cal-dots">${dotsHtml}</div>
+    </div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+// ── DAY MODAL ────────────────────────────────────────────
+function openDayModal(dateStr) {
+  const [dd, mm, yyyy] = dateStr.split('/');
+  const dateObj = new Date(parseInt(yyyy), parseInt(mm)-1, parseInt(dd));
+  const dayName = dateObj.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  document.getElementById('modal-date').textContent = dayName;
+
+  const habits = getHabitsDoneFor(dateStr);
+  const exercises = S.exercises.filter(e => e.date === dateStr);
+  const cardios = S.cardio.filter(c => c.date === dateStr);
+  const bwEntry = S.bodyweights.find(b => b.date === dateStr);
+
+  const isToday = dateStr === todayStr();
+  document.getElementById('modal-sub').textContent = isToday ? 'Today' : '';
+
+  let body = '';
+
+  // Habits
+  body += '<div class="modal-section-title">Habits</div>';
+  body += HABITS.map(h => {
+    const done = habits.includes(h.id);
+    return `<div class="modal-habit-row">
+      <div class="modal-dot ${done?'':'off'}" style="${done?'background:'+h.color:''}"></div>
+      <span style="font-size:16px">${h.icon}</span>
+      <span style="color:${done?'var(--text)':'var(--text3)'};">${h.label}</span>
+      ${done ? '<span style="margin-left:auto;font-size:11px;color:var(--text2)">✓</span>' : ''}
+    </div>`;
+  }).join('');
+
+  // Gym exercises
+  if (exercises.length || cardios.length) {
+    body += '<div class="modal-section-title">Gym session</div>';
+    exercises.forEach(e => {
+      body += `<div class="modal-ex-row">
+        <div class="modal-ex-name">${escHtml(e.name)}${e.pr ? '<span class="pr-badge">PR</span>' : ''}</div>
+        <div class="modal-ex-meta">${e.sets} sets × ${e.reps} reps${e.weight ? ' @ ' + e.weight + ' kg' : ''}</div>
+      </div>`;
+    });
+    cardios.forEach(c => {
+      body += `<div class="modal-ex-row">
+        <div class="modal-ex-name">${escHtml(c.type)}</div>
+        <div class="modal-ex-meta">${c.dur} min${c.dist ? ' · ' + c.dist + ' km' : ''}</div>
+      </div>`;
+    });
+  }
+
+  // Body weight
+  if (bwEntry) {
+    body += '<div class="modal-section-title">Body weight</div>';
+    body += `<div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span></div>`;
+  }
+
+  // Nothing at all
+  if (!habits.length && !exercises.length && !cardios.length && !bwEntry) {
+    body += '<div class="empty" style="padding:30px 0">No activity logged</div>';
+  }
+
+  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay') && e.type !== 'click') return;
+  if (e && e.currentTarget === document.getElementById('modal-overlay') && e.target !== e.currentTarget) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+}
+
+// close on overlay background tap
+document.getElementById('modal-overlay').addEventListener('click', function(e) {
+  if (e.target === this) this.classList.remove('open');
+});
+
+// ── UTILS ────────────────────────────────────────────────
+function fmtDate(d) { return d.toLocaleDateString('en-GB'); }
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function shake(id) {
+  const el = document.getElementById(id); if (!el) return;
+  el.style.borderColor = 'var(--red)';
+  let i = 0; const frames = [-5,5,-3,3,0];
+  const go = () => { if (i >= frames.length) { el.style.transform=''; el.style.borderColor=''; return; } el.style.transform = `translateX(${frames[i]}px)`; i++; setTimeout(go, 60); };
+  go();
+}
+
+// ── INIT ─────────────────────────────────────────────────
+initDateTime();
+renderDashboard();
+</script>
+</body>
+</html>
