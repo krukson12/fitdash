@@ -894,21 +894,18 @@ function dismissBanner() {
 const SB_URL = 'https://wkzaebbfhytuauioqjqw.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndremFlYmJmaHl0dWF1aW9xanF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTY2NzgsImV4cCI6MjA5NTU3MjY3OH0.DyrWDmxKqFFhr_geNapCJMlhb2lrpVhCYEQvvGzGjMw';
 
-// Stable user ID stored locally (no login needed)
-function getUserId() {
-  let uid = localStorage.getItem('fitdash_uid');
-  if (!uid) { uid = 'u_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('fitdash_uid', uid); }
-  return uid;
-}
-const USER_ID = getUserId();
+// ── AUTH STATE ───────────────────────────────────────────
+let CURRENT_USER = null;
+let ACCESS_TOKEN = null;
 
 async function sbFetch(path, opts = {}) {
+  const token = ACCESS_TOKEN || SB_KEY;
   try {
     const res = await fetch(SB_URL + '/rest/v1/' + path, {
       ...opts,
       headers: {
         'apikey': SB_KEY,
-        'Authorization': 'Bearer ' + SB_KEY,
+        'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json',
         'Prefer': opts.prefer || 'return=representation',
         ...(opts.headers || {})
@@ -918,6 +915,111 @@ async function sbFetch(path, opts = {}) {
     const text = await res.text();
     return text ? JSON.parse(text) : [];
   } catch(e) { return null; }
+}
+
+async function sbAuthFetch(path, opts = {}) {
+  try {
+    const res = await fetch(SB_URL + '/auth/v1/' + path, {
+      ...opts,
+      headers: {
+        'apikey': SB_KEY,
+        'Content-Type': 'application/json',
+        ...(opts.headers || {})
+      }
+    });
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  } catch(e) { return null; }
+}
+
+function getUserId() { return CURRENT_USER ? CURRENT_USER.id : null; }
+
+// Handle OAuth redirect (token in URL hash)
+async function handleAuthRedirect() {
+  const hash = window.location.hash;
+  if (hash && hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.slice(1));
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+    if (access_token) {
+      localStorage.setItem('fitdash_access_token', access_token);
+      if (refresh_token) localStorage.setItem('fitdash_refresh_token', refresh_token);
+      window.history.replaceState({}, '', window.location.pathname);
+      await loadSession(access_token);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function loadSession(token) {
+  if (!token) return false;
+  ACCESS_TOKEN = token;
+  const data = await sbAuthFetch('user', { headers: { 'Authorization': 'Bearer ' + token } });
+  if (data && data.id) {
+    CURRENT_USER = data;
+    showAuthUI(true);
+    return true;
+  } else {
+    ACCESS_TOKEN = null;
+    localStorage.removeItem('fitdash_access_token');
+    showAuthUI(false);
+    return false;
+  }
+}
+
+async function tryRefreshSession() {
+  const refresh_token = localStorage.getItem('fitdash_refresh_token');
+  if (!refresh_token) return false;
+  const data = await sbAuthFetch('token?grant_type=refresh_token', {
+    method: 'POST',
+    body: JSON.stringify({ refresh_token })
+  });
+  if (data && data.access_token) {
+    localStorage.setItem('fitdash_access_token', data.access_token);
+    if (data.refresh_token) localStorage.setItem('fitdash_refresh_token', data.refresh_token);
+    return await loadSession(data.access_token);
+  }
+  return false;
+}
+
+function signInWithGoogle() {
+  const redirectTo = encodeURIComponent(window.location.href.split('#')[0]);
+  window.location.href = `${SB_URL}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}`;
+}
+
+async function signOut() {
+  if (ACCESS_TOKEN) {
+    await sbAuthFetch('logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + ACCESS_TOKEN } });
+  }
+  ACCESS_TOKEN = null;
+  CURRENT_USER = null;
+  localStorage.removeItem('fitdash_access_token');
+  localStorage.removeItem('fitdash_refresh_token');
+  showAuthUI(false);
+}
+
+function showAuthUI(loggedIn) {
+  let bar = document.getElementById('auth-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'auth-bar';
+    bar.style.cssText = 'position:fixed;bottom:calc(64px + var(--safe-bottom) + 8px);right:12px;z-index:150;';
+    document.body.appendChild(bar);
+  }
+  if (loggedIn && CURRENT_USER) {
+    const name = CURRENT_USER.user_metadata?.full_name || CURRENT_USER.email || 'You';
+    const avatar = CURRENT_USER.user_metadata?.avatar_url;
+    bar.innerHTML = `<div style="display:flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:20px;padding:5px 10px 5px 6px;cursor:pointer;" onclick="signOut()" title="Sign out">
+      ${avatar ? `<img src="${avatar}" style="width:20px;height:20px;border-radius:50%;flex-shrink:0;">` : '<div style="width:20px;height:20px;border-radius:50%;background:var(--accent-dim);flex-shrink:0;"></div>'}
+      <span style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span>
+    </div>`;
+  } else {
+    bar.innerHTML = `<button onclick="signInWithGoogle()" style="display:flex;align-items:center;gap:8px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:20px;padding:7px 14px;cursor:pointer;font-family:DM Sans,sans-serif;font-size:12px;font-weight:500;color:var(--text2);">
+      <svg width="14" height="14" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Sign in with Google
+    </button>`;
+  }
 }
 
 // ── SYNC STATUS UI ───────────────────────────────────────
@@ -950,35 +1052,31 @@ function scheduleSyncUp() {
 }
 
 async function syncUp() {
+  const uid = getUserId();
+  if (!uid) return;
   if (!navigator.onLine) { showSyncStatus('offline'); return; }
   showSyncStatus('syncing');
   try {
-    // Exercises
     for (const e of S.exercises.filter(x => !x.synced)) {
-      const r = await sbFetch('exercises', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date }) });
+      const r = await sbFetch('exercises', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date }) });
       if (r && r[0]) { e.synced = true; e.sb_id = r[0].id; }
     }
-    // Cardio
     for (const c of S.cardio.filter(x => !x.synced)) {
-      const r = await sbFetch('cardio', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, type: c.type, duration: c.dur, distance: c.dist, date: c.date }) });
+      const r = await sbFetch('cardio', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, type: c.type, duration: c.dur, distance: c.dist, date: c.date }) });
       if (r && r[0]) { c.synced = true; c.sb_id = r[0].id; }
     }
-    // Bodyweights
     for (const b of S.bodyweights.filter(x => !x.synced)) {
-      const r = await sbFetch('bodyweights', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, val: b.val, date: b.date }) });
+      const r = await sbFetch('bodyweights', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, val: b.val, date: b.date }) });
       if (r && r[0]) { b.synced = true; b.sb_id = r[0].id; }
     }
-    // Todos
     for (const t of S.todos.filter(x => !x.synced)) {
-      const r = await sbFetch('todos', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: USER_ID, text: t.text, done: t.done, date: t.date }) });
+      const r = await sbFetch('todos', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, text: t.text, done: t.done, date: t.date }) });
       if (r && r[0]) { t.synced = true; t.sb_id = r[0].id; }
     }
-    // Todo done status updates
     for (const t of S.todos.filter(x => x.synced && x.sb_id && x._dirty)) {
       await sbFetch(`todos?id=eq.${t.sb_id}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify({ done: t.done }) });
       delete t._dirty;
     }
-    // Habits (upsert by date)
     const allHabitDates = new Set();
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -986,7 +1084,7 @@ async function syncUp() {
     }
     for (const date of allHabitDates) {
       const habit_ids = getHabitsDoneFor(date);
-      await sbFetch('habits', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: USER_ID, date, habit_ids }) });
+      await sbFetch('habits', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, date, habit_ids }) });
     }
     save();
     showSyncStatus('ok');
@@ -994,15 +1092,17 @@ async function syncUp() {
 }
 
 async function syncDown() {
+  const uid = getUserId();
+  if (!uid) return;
   if (!navigator.onLine) { showSyncStatus('offline'); return; }
   showSyncStatus('syncing');
   try {
     const [exData, cardioData, bwData, todoData, habitData] = await Promise.all([
-      sbFetch(`exercises?user_id=eq.${USER_ID}&order=created_at.desc&limit=200`),
-      sbFetch(`cardio?user_id=eq.${USER_ID}&order=created_at.desc&limit=200`),
-      sbFetch(`bodyweights?user_id=eq.${USER_ID}&order=created_at.desc&limit=100`),
-      sbFetch(`todos?user_id=eq.${USER_ID}&order=created_at.desc&limit=200`),
-      sbFetch(`habits?user_id=eq.${USER_ID}&limit=500`),
+      sbFetch(`exercises?user_id=eq.${uid}&order=created_at.desc&limit=200`),
+      sbFetch(`cardio?user_id=eq.${uid}&order=created_at.desc&limit=200`),
+      sbFetch(`bodyweights?user_id=eq.${uid}&order=created_at.desc&limit=100`),
+      sbFetch(`todos?user_id=eq.${uid}&order=created_at.desc&limit=200`),
+      sbFetch(`habits?user_id=eq.${uid}&limit=500`),
     ]);
 
     if (exData) S.exercises = exData.map(e => ({ id: e.id, sb_id: e.id, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date, synced: true }));
@@ -1440,7 +1540,23 @@ function shake(id) {
 // ── INIT ─────────────────────────────────────────────────
 initDateTime();
 renderDashboard();
-syncDown();
+showAuthUI(false); // show login button initially
+
+(async function init() {
+  // Check for OAuth redirect first
+  const redirected = await handleAuthRedirect();
+  if (!redirected) {
+    // Try existing session
+    const token = localStorage.getItem('fitdash_access_token');
+    if (token) {
+      const ok = await loadSession(token);
+      if (!ok) await tryRefreshSession();
+    } else {
+      showAuthUI(false);
+    }
+  }
+  if (getUserId()) syncDown();
+})();
 </script>
 </body>
 </html>
