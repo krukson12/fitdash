@@ -1085,7 +1085,20 @@ async function syncUp() {
     }
     for (const date of allHabitDates) {
       const habit_ids = getHabitsDoneFor(date);
-      await sbFetch('habits', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, date, habit_ids }) });
+      // Try PATCH first (update existing), fall back to POST (insert new)
+      const patch = await sbFetch(`habits?user_id=eq.${uid}&date=eq.${encodeURIComponent(date)}`, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=representation' },
+        body: JSON.stringify({ habit_ids, updated_at: new Date().toISOString() })
+      });
+      if (!patch || patch.length === 0) {
+        // No existing record, insert new
+        await sbFetch('habits', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ user_id: uid, date, habit_ids })
+        });
+      }
     }
     save();
     showSyncStatus('ok');
