@@ -901,6 +901,7 @@ let ACCESS_TOKEN = null;
 async function sbFetch(path, opts = {}) {
   const token = ACCESS_TOKEN || SB_KEY;
   try {
+    const customHeaders = opts.headers || {};
     const res = await fetch(SB_URL + '/rest/v1/' + path, {
       ...opts,
       headers: {
@@ -908,7 +909,7 @@ async function sbFetch(path, opts = {}) {
         'Authorization': 'Bearer ' + token,
         'Content-Type': 'application/json',
         'Prefer': opts.prefer || 'return=representation',
-        ...(opts.headers || {})
+        ...customHeaders
       }
     });
     if (!res.ok) return null;
@@ -1084,7 +1085,7 @@ async function syncUp() {
     }
     for (const date of allHabitDates) {
       const habit_ids = getHabitsDoneFor(date);
-      await sbFetch('habits', { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, date, habit_ids }) });
+      await sbFetch('habits', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ user_id: uid, date, habit_ids }) });
     }
     save();
     showSyncStatus('ok');
