@@ -641,10 +641,26 @@ select option { background: var(--bg3); }
         <button class="gym-tab" onclick="switchGymTab('bodyweight',this)">Body weight</button>
       </div>
       <div id="gtab-exercise">
-        <div class="card">
-          <div class="field-group">
-            <label class="field-label">Exercise name</label>
-            <input id="ex-name" placeholder="e.g. Bench press">
+        <div class="card" id="ex-picker-card">
+          <div class="card-title" style="margin-bottom:10px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Choose exercise
+          </div>
+          <div id="ex-muscle-tabs" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:12px;scrollbar-width:none;"></div>
+          <div id="ex-picker-list"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border)">
+            <label class="field-label">Or type custom</label>
+            <input id="ex-name-custom" placeholder="Custom exercise..." oninput="selectCustomExercise(this.value)" style="margin-top:4px">
+          </div>
+        </div>
+        <div class="card" id="ex-log-form-card" style="display:none">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <button onclick="clearExercisePicker()" style="width:28px;height:28px;border-radius:50%;background:var(--bg3);border:0.5px solid var(--border2);color:var(--text2);font-size:16px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">←</button>
+            <div id="ex-selected-name" style="font-size:16px;font-weight:600;color:var(--text);flex:1"></div>
+          </div>
+          <div id="ex-last-log" style="margin-bottom:12px;display:none">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Last logged</div>
+            <div id="ex-last-log-text" style="font-size:13px;font-family:DM Mono,monospace;color:var(--accent)"></div>
           </div>
           <div class="field-row-3">
             <div class="field-group">
@@ -657,7 +673,7 @@ select option { background: var(--bg3); }
             </div>
             <div class="field-group">
               <label class="field-label">kg</label>
-              <input id="ex-weight" type="number" min="0" max="500" step="0.5" placeholder="60">
+              <input id="ex-weight" type="number" min="0" max="500" step="0.5" placeholder="0">
             </div>
           </div>
           <button class="btn-primary" onclick="logExercise()">Log exercise</button>
@@ -1178,7 +1194,7 @@ function switchView(v, btn) {
   if (btn) btn.classList.add('active');
   if (v === 'dashboard') renderDashboard();
   if (v === 'todos') renderTodos();
-  if (v === 'gym') { renderExLog(); renderCardioLog(); renderBWChart(); }
+  if (v === 'gym') { renderExLog(); renderCardioLog(); renderBWChart(); initExercisePicker(); }
   if (v === 'calendar') renderCalendar();
 }
 
@@ -1258,16 +1274,16 @@ function renderTodos() {
 
 // ── EXERCISES ────────────────────────────────────────────
 function logExercise() {
-  const name = document.getElementById('ex-name').value.trim();
+  const name = selectedExercise.trim();
   const sets = parseInt(document.getElementById('ex-sets').value) || 0;
   const reps = parseInt(document.getElementById('ex-reps').value) || 0;
   const weight = parseFloat(document.getElementById('ex-weight').value) || 0;
-  if (!name || !sets || !reps) { shake('ex-name'); return; }
+  if (!name || !sets || !reps) { shake('ex-sets'); return; }
   const prev = S.exercises.filter(e => e.name.toLowerCase() === name.toLowerCase() && e.weight > 0);
   const pr = weight > 0 && (!prev.length || weight > Math.max(...prev.map(e => e.weight)));
   S.exercises.unshift({ id: Date.now(), name, sets, reps, weight, pr, date: todayStr(), synced: false });
   save(); renderExLog(); renderDashboard(); scheduleSyncUp();
-  ['ex-name','ex-sets','ex-reps','ex-weight'].forEach(id => document.getElementById(id).value = '');
+  clearExercisePicker();
 }
 
 function deleteExercise(id) {
@@ -1551,9 +1567,121 @@ function shake(id) {
   go();
 }
 
-// ── INIT ─────────────────────────────────────────────────
+// ── EXERCISE DATABASE ────────────────────────────────────
+const EXERCISES_DB = {
+  'Klata': [
+    'Płaska ława', 'Skośna ławka', 'Skośna ławka hantle', 'Pec fly',
+    'Rozpiętki kable', 'Rozpiętki na ławce', 'Pompki', 'Pompki na podwyższeniu', 'Dipy'
+  ],
+  'Barki': [
+    'Żołnierskie', 'Żołnierskie hantle', 'Barki hantle boki',
+    'Face cable pull', 'Lean in cable pull'
+  ],
+  'Triceps': [
+    'Cable pull down', 'Triceps press', 'Overhead dumbbell triceps',
+    'Cable overhead triceps', 'Skull crushers', 'Dumbbell overhead triceps'
+  ],
+  'Plecy': [
+    'Pull-ups', 'Lat pull-down szerokie', 'Lat pull-down V-grip',
+    'Single arm lat pull-down', 'Wiosłowanie sztangą', 'Wiosłowanie z dołu',
+    'Low row', 'Low row dumbbell', 'One arm dumbbell row', 'Ławka rzymska'
+  ],
+  'Biceps': [
+    'Modlitewnik', 'Biceps kable', 'Spider curl',
+    'Single arm cable curl', 'Barbell curl'
+  ],
+  'Nogi': [
+    'Przysiad', 'Bułgary'
+  ],
+  'Core': [
+    'Leg raises', 'Plank', 'Wznosy nóg drążek', 'Myszkowe ćwiczenie'
+  ],
+  'Inne': [
+    'Martwy ciąg', 'Hex trap bar'
+  ]
+};
+
+let selectedExercise = '';
+let activeMuscleTab = Object.keys(EXERCISES_DB)[0];
+
+function initExercisePicker() {
+  const tabs = document.getElementById('ex-muscle-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = Object.keys(EXERCISES_DB).map(m =>
+    `<button class="gym-tab ${m === activeMuscleTab ? 'active' : ''}" onclick="switchMuscleTab('${m}',this)">${m}</button>`
+  ).join('');
+  renderExercisePicker();
+}
+
+function switchMuscleTab(muscle, btn) {
+  activeMuscleTab = muscle;
+  document.querySelectorAll('#ex-muscle-tabs .gym-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderExercisePicker();
+}
+
+function renderExercisePicker() {
+  const list = document.getElementById('ex-picker-list');
+  if (!list) return;
+  const exercises = EXERCISES_DB[activeMuscleTab] || [];
+  list.innerHTML = exercises.map(ex => {
+    const last = getLastLog(ex);
+    return `<div onclick="selectExercise('${ex.replace(/'/g, "\\'")}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;">
+      <span style="font-size:14px;font-weight:500;color:var(--text)">${ex}</span>
+      ${last ? `<span style="font-size:11px;color:var(--text3);font-family:DM Mono,monospace">${last}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function getLastLog(name) {
+  const logs = S.exercises.filter(e => e.name.toLowerCase() === name.toLowerCase());
+  if (!logs.length) return '';
+  const last = logs[0];
+  return `${last.sets}×${last.reps}${last.weight ? ' @'+last.weight+'kg' : ''}`;
+}
+
+function selectExercise(name) {
+  selectedExercise = name;
+  document.getElementById('ex-picker-card').style.display = 'none';
+  document.getElementById('ex-log-form-card').style.display = 'block';
+  document.getElementById('ex-selected-name').textContent = name;
+  const last = S.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
+  const lastDiv = document.getElementById('ex-last-log');
+  const lastText = document.getElementById('ex-last-log-text');
+  if (last) {
+    lastText.textContent = `${last.sets} sets × ${last.reps} reps${last.weight ? ' @ ' + last.weight + ' kg' : ''} · ${last.date}`;
+    lastDiv.style.display = 'block';
+    document.getElementById('ex-sets').value = last.sets;
+    document.getElementById('ex-reps').value = last.reps;
+    if (last.weight) document.getElementById('ex-weight').value = last.weight;
+  } else {
+    lastDiv.style.display = 'none';
+  }
+}
+
+function selectCustomExercise(val) {
+  selectedExercise = val;
+  if (val.length > 1) {
+    document.getElementById('ex-picker-card').style.display = 'none';
+    document.getElementById('ex-log-form-card').style.display = 'block';
+    document.getElementById('ex-selected-name').textContent = val;
+    const lastDiv = document.getElementById('ex-last-log');
+    lastDiv.style.display = 'none';
+  }
+}
+
+function clearExercisePicker() {
+  selectedExercise = '';
+  document.getElementById('ex-picker-card').style.display = 'block';
+  document.getElementById('ex-log-form-card').style.display = 'none';
+  document.getElementById('ex-name-custom').value = '';
+  document.getElementById('ex-sets').value = '';
+  document.getElementById('ex-reps').value = '';
+  document.getElementById('ex-weight').value = '';
+}
 initDateTime();
 renderDashboard();
+initExercisePicker();
 showAuthUI(false); // show login button initially
 
 (async function init() {
