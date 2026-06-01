@@ -1293,20 +1293,65 @@ function deleteExercise(id) {
   save(); renderExLog(); renderDashboard();
 }
 
+let expandedDays = new Set([new Date().toLocaleDateString('en-GB')]);
+
 function renderExLog() {
   const el = document.getElementById('ex-log');
   const card = document.getElementById('ex-log-card');
   if (!el || !card) return;
   if (!S.exercises.length) { card.style.display = 'none'; return; }
   card.style.display = 'block';
-  el.innerHTML = S.exercises.slice(0, 30).map(e => `
-    <div class="log-entry">
-      <div>
-        <div class="log-name">${escHtml(e.name)}${e.pr ? '<span class="pr-badge">PR</span>' : ''}</div>
-        <div class="log-meta">${e.sets}×${e.reps}${e.weight ? ' @ '+e.weight+' kg' : ''} · ${e.date}</div>
+
+  // Group by date
+  const byDate = {};
+  S.exercises.forEach(e => {
+    if (!byDate[e.date]) byDate[e.date] = [];
+    byDate[e.date].push(e);
+  });
+
+  // Sort dates newest first
+  const dates = Object.keys(byDate).sort((a, b) => {
+    const pa = a.split('/').reverse().join('');
+    const pb = b.split('/').reverse().join('');
+    return pb.localeCompare(pa);
+  });
+
+  el.innerHTML = dates.slice(0, 20).map(date => {
+    const exs = byDate[date];
+    const isExpanded = expandedDays.has(date);
+    const isToday = date === todayStr();
+    const prs = exs.filter(e => e.pr).length;
+    const muscles = [...new Set(exs.map(e => {
+      for (const [muscle, list] of Object.entries(EXERCISES_DB)) {
+        if (list.some(n => n.toLowerCase() === e.name.toLowerCase())) return muscle;
+      }
+      return null;
+    }).filter(Boolean))].join(', ');
+
+    return `<div style="border-bottom:0.5px solid var(--border);last:border-none">
+      <div onclick="toggleDayLog('${date}')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;cursor:pointer;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:var(--text)">${isToday ? 'Today' : date}${prs ? ` <span class="pr-badge">${prs} PR</span>` : ''}</div>
+          <div style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;margin-top:2px">${exs.length} exercises${muscles ? ' · ' + muscles : ''}</div>
+        </div>
+        <div style="color:var(--text3);font-size:18px;transition:transform .2s;transform:rotate(${isExpanded?'90':'0'}deg)">›</div>
       </div>
-      <span class="log-del" onclick="deleteExercise(${e.id})">×</span>
-    </div>`).join('');
+      ${isExpanded ? `<div style="padding-bottom:8px">${exs.map(e => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0 7px 12px;border-top:0.5px solid var(--border)">
+          <div>
+            <div style="font-size:13px;font-weight:500;color:var(--text)">${escHtml(e.name)}${e.pr ? '<span class="pr-badge">PR</span>' : ''}</div>
+            <div style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;margin-top:1px">${e.sets} × ${e.reps}${e.weight ? ' @ ' + e.weight + ' kg' : ''}</div>
+          </div>
+          <span class="log-del" onclick="deleteExercise(${e.id})">×</span>
+        </div>`).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleDayLog(date) {
+  if (expandedDays.has(date)) expandedDays.delete(date);
+  else expandedDays.add(date);
+  renderExLog();
 }
 
 // ── CARDIO ───────────────────────────────────────────────
