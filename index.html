@@ -728,12 +728,31 @@ function renderTodos() {
   const tods = S.todos.filter(t => !t.done || t.date === todayStr());
   el.innerHTML = tods.length ? tods.map(t => `
     <div class="todo-item">
-      <div class="todo-check ${t.done?'done':''}" onclick="toggleTodo(${t.id})" role="checkbox">
+      <div class="todo-check ${t.done?'done':''}" data-todo-id="${t.id}" style="cursor:pointer" role="checkbox">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
       <span class="todo-text ${t.done?'done':''}">${escHtml(t.text)}</span>
-      <span class="todo-del" onclick="deleteTodo(${t.id})">×</span>
+      <span class="todo-del" data-todo-del="${t.id}" style="cursor:pointer">×</span>
     </div>`).join('') : '';
+
+  el.querySelectorAll('[data-todo-id]').forEach(btn => {
+    btn.removeEventListener('click', todoCheckClick);
+    btn.addEventListener('click', todoCheckClick);
+  });
+  el.querySelectorAll('[data-todo-del]').forEach(btn => {
+    btn.removeEventListener('click', todoDelClick);
+    btn.addEventListener('click', todoDelClick);
+  });
+}
+
+function todoCheckClick(e) {
+  const id = parseInt(e.currentTarget.dataset.todoId);
+  toggleTodo(id);
+}
+
+function todoDelClick(e) {
+  const id = parseInt(e.currentTarget.dataset.todoDel);
+  deleteTodo(id);
 }
 
 // ── SETS STATE ───────────────────────────────────────────
