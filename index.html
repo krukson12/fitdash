@@ -551,6 +551,21 @@ function load() { try { const d = localStorage.getItem(KEY); if (d) S = JSON.par
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
 load();
 
+// Fix old todos that are missing id field
+if (S.todos && S.todos.length) {
+  const today = new Date().toLocaleDateString('en-GB');
+  S.todos = S.todos.map((t, i) => ({
+    id: t.id || (t.text ? Math.abs(t.text.charCodeAt(0) * 1000 + i) : Date.now() + i),
+    text: t.text || '',
+    done: t.done || false,
+    date: t.date || today,
+    synced: t.synced || false,
+    ...(t.sb_id && { sb_id: t.sb_id }),
+    ...(t._dirty && { _dirty: t._dirty })
+  }));
+  save();
+}
+
 let syncTimer = null;
 function scheduleSyncUp() { clearTimeout(syncTimer); syncTimer = setTimeout(syncUp, 1500); }
 
