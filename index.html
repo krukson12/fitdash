@@ -304,6 +304,10 @@ select option { background: var(--bg3); }
           </div>
           <div id="sets-list"></div>
           <button class="add-set-btn" onclick="addSet()">+ Add set</button>
+          <div class="field-group" style="margin-top:12px">
+            <label class="field-label">Notes (optional)</label>
+            <input id="ex-notes" type="text" placeholder="e.g. felt strong, joint pain..." style="margin-top:4px">
+          </div>
           <button class="btn-primary" id="log-ex-btn" onclick="logExercise()" style="margin-top:8px">Log exercise</button>
         </div>
         <div class="card" id="ex-log-card" style="display:none">
@@ -735,6 +739,12 @@ function renderTodos() {
 // ── SETS STATE ───────────────────────────────────────────
 let currentSets = [];
 
+function calcEpley(reps, weight) {
+  if (!weight || !reps || reps >= 37) return null;
+  const w = parseFloat(weight), r = parseInt(reps);
+  return Math.round((w * (1 + r / 30)) * 10) / 10;
+}
+
 function addSet(reps, weight) {
   currentSets.push({ reps: reps !== undefined ? reps : '', weight: weight !== undefined ? weight : '', rpe: '' });
   renderSetsList();
@@ -752,20 +762,24 @@ function removeSet(idx) {
 function renderSetsList() {
   const el = document.getElementById('sets-list');
   if (!el) return;
-  el.innerHTML = currentSets.map((s, i) => `
+  el.innerHTML = currentSets.map((s, i) => {
+    const orm = calcEpley(s.reps, s.weight);
+    return `
     <div class="set-row">
       <span class="set-num">Set ${i+1}</span>
       <input type="number" min="1" max="100" placeholder="reps" value="${s.reps}"
-        oninput="currentSets[${i}].reps=this.value"
+        oninput="currentSets[${i}].reps=this.value; renderSetsList()"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
       <input type="number" min="0" max="500" step="0.5" placeholder="kg" value="${s.weight}"
-        oninput="currentSets[${i}].weight=this.value"
+        oninput="currentSets[${i}].weight=this.value; renderSetsList()"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
       <input type="number" min="1" max="10" placeholder="RPE" value="${s.rpe}" class="rpe-in"
         oninput="currentSets[${i}].rpe=this.value"
         onkeydown="if(event.key==='Enter'){event.preventDefault();addSet()}">
       <span class="set-del" onclick="removeSet(${i})">×</span>
-    </div>`).join('');
+      ${orm ? `<div style="position:absolute;right:0;bottom:-16px;font-size:9px;color:var(--text3);font-family:DM Mono,monospace;white-space:nowrap">1RM ~${orm}</div>` : ''}
+    </div>`;
+  }).join('');
   const btn = document.getElementById('log-ex-btn');
   if (btn) btn.textContent = currentSets.length ? `Log exercise — ${currentSets.length} set${currentSets.length>1?'s':''}` : 'Log exercise';
 }
@@ -775,6 +789,7 @@ function logExercise() {
   if (!name || !currentSets.length) { shake('sets-list'); return; }
   const validSets = currentSets.filter(s => parseInt(s.reps) > 0);
   if (!validSets.length) { shake('sets-list'); return; }
+  const notes = (document.getElementById('ex-notes').value || '').trim();
   const maxWeight = Math.max(...validSets.map(s => parseFloat(s.weight) || 0));
   const prev = S.exercises.filter(e => e.name.toLowerCase() === name.toLowerCase());
   const prevMax = prev.length ? Math.max(...prev.map(e => {
@@ -783,7 +798,7 @@ function logExercise() {
   })) : 0;
   const pr = maxWeight > 0 && maxWeight > prevMax;
   S.exercises.unshift({
-    id: Date.now(), name,
+    id: Date.now(), name, notes,
     sets_data: validSets.map(s => ({ reps: parseInt(s.reps)||0, weight: parseFloat(s.weight)||0, rpe: s.rpe ? parseInt(s.rpe) : null })),
     sets: validSets.length, reps: parseInt(validSets[0].reps)||0, weight: maxWeight,
     pr, date: todayStr(), synced: false
@@ -840,9 +855,10 @@ function renderExLog() {
       </div>
       ${isExpanded ? `<div style="padding-bottom:8px">${exs.map(e => `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0 7px 12px;border-top:0.5px solid var(--border)">
-          <div>
+          <div style="flex:1">
             <div style="font-size:13px;font-weight:500;color:var(--text);cursor:pointer;" onclick="showExerciseProgress('${e.name.replace(/'/g,"\\'")}')">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div>
             <div style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;margin-top:1px">${fmtSetsData(e)}</div>
+            ${e.notes ? `<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:3px">"${escHtml(e.notes)}"</div>` : ''}
           </div>
           <span class="log-del" onclick="deleteExercise(${e.id})">×</span>
         </div>`).join('')}</div>` : ''}
@@ -999,6 +1015,22 @@ function renderDashboard() {
   const prs = S.exercises.filter(e => e.pr).length;
   const allDone = habitsDone.length === HABITS.length;
 
+  let bwTrend7 = null, bwTrend30 = null;
+  if (bw && S.bodyweights.length > 1) {
+    const d7 = S.bodyweights.find((b, i) => {
+      const d = new Date(); d.setDate(d.getDate() - 7);
+      return b.date === fmtDate(d);
+    });
+    if (d7) bwTrend7 = bw.val - d7.val;
+    const d30 = S.bodyweights.find((b, i) => {
+      const d = new Date(); d.setDate(d.getDate() - 30);
+      return b.date === fmtDate(d);
+    });
+    if (d30) bwTrend30 = bw.val - d30.val;
+  }
+
+  const bwClass = bwTrend7 && Math.abs(bwTrend7) > 0.2 ? (bwTrend7 > 0 ? 'up' : 'down') : '';
+
   document.getElementById('dash-stats').innerHTML = `
     <div class="stat-card ${allDone ? 'accent' : ''}">
       <div class="stat-label">Habits done</div>
@@ -1011,6 +1043,7 @@ function renderDashboard() {
     <div class="stat-card">
       <div class="stat-label">Body weight</div>
       <div class="stat-val">${bw ? bw.val : '—'}<span class="stat-unit">${bw ? ' kg' : ''}</span></div>
+      ${bwTrend7 !== null ? `<div style="font-size:10px;color:${bwTrend7 > 0 ? 'var(--red)' : 'var(--accent)'};margin-top:3px">${bwTrend7 > 0 ? '+' : ''}${bwTrend7.toFixed(1)} (7d)</div>` : ''}
     </div>
     <div class="stat-card ${prs > 0 ? 'accent' : ''}">
       <div class="stat-label">PRs set</div>
@@ -1110,7 +1143,7 @@ function openDayModal(dateStr) {
   }).join('');
   if (exercises.length || cardios.length) {
     body += '<div class="modal-section-title">Gym session</div>';
-    exercises.forEach(e => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div><div class="modal-ex-meta">${fmtSetsData(e)}</div></div>`; });
+    exercises.forEach(e => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div><div class="modal-ex-meta">${fmtSetsData(e)}${e.notes ? '<br style="margin-top:2px"><span style="font-style:italic;color:var(--text3)">"'+escHtml(e.notes)+'"</span>' : ''}</div></div>`; });
     cardios.forEach(c => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(c.type)}</div><div class="modal-ex-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''}</div></div>`; });
   }
   if (bwEntry) body += `<div class="modal-section-title">Body weight</div><div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span></div>`;
@@ -1191,6 +1224,7 @@ function selectExercise(name) {
   document.getElementById('ex-picker-card').style.display = 'none';
   document.getElementById('ex-log-form-card').style.display = 'block';
   document.getElementById('ex-selected-name').textContent = name;
+  document.getElementById('ex-notes').value = '';
   const last = S.exercises.find(e => e.name.toLowerCase() === name.toLowerCase());
   const lastDiv = document.getElementById('ex-last-log');
   const lastText = document.getElementById('ex-last-log-text');
@@ -1218,6 +1252,7 @@ function confirmCustomExercise() {
   document.getElementById('ex-log-form-card').style.display = 'block';
   document.getElementById('ex-selected-name').textContent = val;
   document.getElementById('ex-last-log').style.display = 'none';
+  document.getElementById('ex-notes').value = '';
   currentSets = [];
   addSet();
 }
@@ -1228,6 +1263,7 @@ function clearExercisePicker() {
   document.getElementById('ex-picker-card').style.display = 'block';
   document.getElementById('ex-log-form-card').style.display = 'none';
   document.getElementById('ex-name-custom').value = '';
+  document.getElementById('ex-notes').value = '';
   renderSetsList();
 }
 
