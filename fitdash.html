@@ -96,6 +96,16 @@ select option { background: var(--bg3); }
 .log-meta { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; margin-top: 2px; }
 .log-del { color: var(--text3); cursor: pointer; font-size: 18px; padding: 4px 0 4px 10px; }
 .log-del:active { color: var(--red); }
+.health-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; background: rgba(255,95,87,0.12); color: var(--red); border-radius: 20px; margin-left: 6px; }
+.health-steps { margin: 4px 0 0 18px; font-size: 13px; color: var(--text2); line-height: 1.55; }
+.health-steps li { margin-bottom: 6px; }
+.health-steps b { color: var(--text); font-weight: 500; }
+.copy-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.copy-label { font-size: 11px; color: var(--text3); width: 52px; flex-shrink: 0; text-transform: uppercase; letter-spacing: .05em; }
+.copy-val { flex: 1; min-width: 0; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text); background: var(--bg3); border: 0.5px solid var(--border2); border-radius: 8px; padding: 7px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy-btn { flex-shrink: 0; padding: 7px 10px; font-size: 12px; font-family: 'DM Sans', sans-serif; font-weight: 500; background: var(--bg3); color: var(--text2); border: 0.5px solid var(--border2); border-radius: 8px; cursor: pointer; }
+.copy-btn.done { color: var(--accent); border-color: var(--accent); }
+.link-btn { background: none; border: none; color: var(--text3); font-size: 12px; font-family: 'DM Sans', sans-serif; text-decoration: underline; cursor: pointer; padding: 6px 0 0; }
 .pr-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; background: var(--accent-dim); color: var(--accent); border-radius: 20px; margin-left: 6px; }
 .bw-summary { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 18px; }
 .bw-main { font-size: 38px; font-weight: 600; font-family: 'DM Mono', monospace; letter-spacing: -2px; color: var(--accent); }
@@ -342,6 +352,13 @@ select option { background: var(--bg3); }
           <div class="section-divider">History</div>
           <div id="cardio-log"></div>
         </div>
+        <div class="card">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+            Apple Health auto-import
+          </div>
+          <div id="health-body"></div>
+        </div>
       </div>
       <div id="gtab-bodyweight" style="display:none">
         <div class="card">
@@ -530,6 +547,7 @@ async function signOut() {
   S = emptyState(); save();
   ACCESS_TOKEN = null; CURRENT_USER = null;
   ['fitdash_access_token','fitdash_refresh_token','fitdash_user'].forEach(k => localStorage.removeItem(k));
+  healthToken = null; healthOpen = false;
   showAuthUI(); renderAll();
 }
 
@@ -753,7 +771,7 @@ function toggleHabit(id) {
 }
 
 function renderAll() {
-  renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar(); renderExercisePicker();
+  renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar(); renderExercisePicker(); renderHealthCard();
 }
 
 function switchView(v, btn) {
@@ -1045,9 +1063,72 @@ function renderCardioLog() {
   card.style.display = 'block';
   el.innerHTML = S.cardio.slice(0, 30).map(c => `
     <div class="log-entry">
-      <div><div class="log-name">${escHtml(c.type)}</div><div class="log-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''} · ${c.date}</div></div>
+      <div><div class="log-name">${escHtml(c.type)}${c.source === 'health' ? '<span class="health-badge">❤ Health</span>' : ''}</div><div class="log-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''} · ${c.date}</div></div>
       <span class="log-del" onclick="deleteCardio(${jsArg(c.id)})">×</span>
     </div>`).join('');
+}
+
+// ── APPLE HEALTH (via Shortcuts) ─────────────────────────
+let healthToken = null, healthOpen = false;
+async function loadHealthToken(create) {
+  let rows = await api('fitdash_tokens?select=token');
+  if (!rows.length && create) rows = await api('fitdash_tokens', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ user_id: getUserId() }) });
+  healthToken = rows[0]?.token || null;
+}
+async function openHealthSetup() {
+  const body = document.getElementById('health-body');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+  try { await loadHealthToken(true); healthOpen = true; }
+  catch(e) { console.warn(e); body.innerHTML = '<div class="empty">Couldn\'t load your Health key — check the connection and try again.</div>'; return; }
+  renderHealthCard();
+}
+async function resetHealthKey() {
+  if (!confirm('Make a new Health key?\n\nThe old key stops working — you\'ll need to paste the new one into your Shortcuts.')) return;
+  try { await api('fitdash_tokens?user_id=eq.' + getUserId(), { method: 'DELETE' }); await loadHealthToken(true); }
+  catch(e) { alert('Couldn\'t reset the key. Try again when online.'); }
+  renderHealthCard();
+}
+function copyText(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'Copied'; btn.classList.add('done');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1500);
+  });
+}
+function renderHealthCard() {
+  const body = document.getElementById('health-body');
+  if (!body) return;
+  if (!getUserId()) {
+    body.innerHTML = '<div style="font-size:13px;color:var(--text2);line-height:1.5">Sign in (Dashboard, top right) to have runs, walks and steps from Apple Health added automatically.</div>';
+    return;
+  }
+  if (!healthOpen || !healthToken) {
+    body.innerHTML = `<div style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:10px">An iPhone Shortcut can send your workouts and daily steps from Apple Health to FitDash automatically.</div>
+      <button class="btn-primary" onclick="openHealthSetup()">Set up</button>`;
+    return;
+  }
+  const url = SB_URL + '/rest/v1/rpc/fitdash_health';
+  const row = (label, val) => `<div class="copy-row"><span class="copy-label">${label}</span><span class="copy-val">${escHtml(val)}</span><button class="copy-btn" onclick="copyText(this, ${jsArg(val)})">Copy</button></div>`;
+  body.innerHTML = `
+    ${row('URL', url)}
+    ${row('apikey', SB_KEY)}
+    ${row('Key', healthToken)}
+    <div class="section-divider">Shortcut 1 — workouts</div>
+    <ol class="health-steps">
+      <li>Shortcuts → <b>New Shortcut</b> → add <b>Find Health Samples</b>: Type <b>Workouts</b>, Start Date <b>is today</b>.</li>
+      <li><b>Repeat with Each</b> item, and inside it:</li>
+      <li><b>Format Date</b> → Repeat Item's <b>Start Date</b>, format <b>ISO 8601</b>, include time.</li>
+      <li><b>Get Contents of URL</b> → the URL above. Method <b>POST</b>. Header <b>apikey</b> = the apikey above. Request Body <b>JSON</b>:<br>
+        <b>token</b> = your Key · <b>workout</b> = Repeat Item's Type · <b>start</b> = Formatted Date · <b>minutes</b> = Repeat Item's Duration · <b>km</b> = Repeat Item's Distance</li>
+    </ol>
+    <div class="section-divider">Shortcut 2 — steps (optional)</div>
+    <ol class="health-steps">
+      <li><b>Find Health Samples</b>: Type <b>Steps</b>, Start Date <b>is today</b> → <b>Calculate Statistics</b>: <b>Sum</b>.</li>
+      <li><b>Format Date</b> → Current Date, <b>ISO 8601</b>.</li>
+      <li><b>Get Contents of URL</b> (same URL, POST, apikey header), JSON: <b>token</b> = Key · <b>steps</b> = Sum · <b>day</b> = Formatted Date. 10,000+ ticks the steps habit.</li>
+    </ol>
+    <div class="section-divider">Make it automatic</div>
+    <div style="font-size:13px;color:var(--text2);line-height:1.55">Shortcuts → <b style="color:var(--text);font-weight:500">Automation</b> → <b style="color:var(--text);font-weight:500">Time of Day</b> (e.g. 21:00, daily) → run both shortcuts, <b style="color:var(--text);font-weight:500">Run Immediately</b>. With an Apple Watch, also add <b style="color:var(--text);font-weight:500">Apple Watch Workout → Ends</b> to get workouts right away. Sending the same workout twice is safe, and deleting an import here keeps it deleted.</div>
+    <button class="link-btn" onclick="resetHealthKey()">Reset key</button>`;
 }
 
 function logBodyweight() {
@@ -1251,7 +1332,7 @@ function openDayModal(dateStr) {
   if (exercises.length || cardios.length) {
     body += '<div class="modal-section-title">Gym session</div>';
     exercises.forEach(e => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div><div class="modal-ex-meta">${fmtSetsData(e)}${e.notes ? '<br style="margin-top:2px"><span style="font-style:italic;color:var(--text3)">"'+escHtml(e.notes)+'"</span>' : ''}</div></div>`; });
-    cardios.forEach(c => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(c.type)}</div><div class="modal-ex-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''}</div></div>`; });
+    cardios.forEach(c => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(c.type)}${c.source === 'health' ? '<span class="health-badge">❤ Health</span>' : ''}</div><div class="modal-ex-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''}</div></div>`; });
   }
   if (bwEntry) body += `<div class="modal-section-title">Body weight</div><div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span></div>`;
   if (!habits.length && !exercises.length && !cardios.length && !bwEntry) body += '<div class="empty" style="padding:30px 0">No activity logged</div>';
