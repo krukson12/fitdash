@@ -9,20 +9,9 @@
 <meta name="theme-color" content="#0e0e10">
 <title>FitDash</title>
 
-<script>
-(function() {
-  const manifest = {
-    name: "FitDash", short_name: "FitDash", description: "Personal fitness tracker",
-    start_url: ".", display: "standalone", background_color: "#0e0e10", theme_color: "#0e0e10",
-    orientation: "portrait",
-    icons: [{ src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230e0e10'/%3E%3Ctext x='50%25' y='54%25' font-size='300' text-anchor='middle' dominant-baseline='middle' fill='%23c8f135'%3E%F0%9F%8F%8B%EF%B8%8F%3C/text%3E%3C/svg%3E", sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }]
-  };
-  const blob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
-  const link = document.createElement('link'); link.rel = 'manifest'; link.href = URL.createObjectURL(blob);
-  document.head.appendChild(link);
-})();
-</script>
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='112' fill='%230e0e10'/%3E%3Ctext x='50%25' y='54%25' font-size='300' text-anchor='middle' dominant-baseline='middle' fill='%23c8f135'%3E%F0%9F%8F%8B%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -49,6 +38,15 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .view { display: none; padding: 0 14px; }
 .view.active { display: block; }
 .page-header { margin-bottom: 20px; }
+.page-header.with-auth { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.auth-pill { display: flex; align-items: center; gap: 6px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 20px; padding: 5px 10px 5px 6px; cursor: pointer; font-family: 'DM Sans', sans-serif; flex-shrink: 0; margin-top: 4px; }
+.auth-pill img, .auth-pill .avatar-ph { width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; background: var(--accent-dim); }
+.auth-name { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); flex-shrink: 0; transition: background .3s; }
+.sync-dot.ok { background: var(--accent); }
+.sync-dot.syncing { background: var(--blue); animation: pulse 1s infinite; }
+.sync-dot.error, .sync-dot.offline { background: var(--red); }
+@keyframes pulse { 50% { opacity: .3; } }
 .page-title { font-size: 26px; font-weight: 600; letter-spacing: -0.5px; }
 .page-sub { font-size: 13px; color: var(--text2); margin-top: 2px; font-family: 'DM Mono', monospace; }
 .card { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
@@ -117,6 +115,7 @@ select option { background: var(--bg3); }
 .set-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
 .set-row:last-of-type { border-bottom: none; }
 .set-num { width: 40px; font-size: 12px; color: var(--text3); font-family: 'DM Mono', monospace; flex-shrink: 0; }
+.set-orm { display: block; font-size: 9px; color: var(--accent); margin-top: 3px; white-space: nowrap; }
 .set-row input { flex: 1; padding: 8px 10px; font-size: 14px; text-align: center; }
 .set-row .rpe-in { flex: none; width: 56px; }
 .set-del { color: var(--text3); cursor: pointer; font-size: 20px; width: 22px; text-align: center; flex-shrink: 0; line-height: 1; }
@@ -209,9 +208,12 @@ select option { background: var(--bg3); }
 
     <!-- DASHBOARD -->
     <div class="view active" id="view-dashboard">
-      <div class="page-header">
-        <div class="page-title" id="greeting">Good morning</div>
-        <div class="page-sub" id="datestr"></div>
+      <div class="page-header with-auth">
+        <div>
+          <div class="page-title" id="greeting">Good morning</div>
+          <div class="page-sub" id="datestr"></div>
+        </div>
+        <div id="auth-slot"></div>
       </div>
       <div class="stat-grid" id="dash-stats"></div>
       <div class="card" id="weekly-card">
@@ -418,27 +420,9 @@ select option { background: var(--bg3); }
 </div>
 
 <script>
-(function registerSW() {
-  const swCode = `
-const CACHE = 'fitdash-v1';
-const ASSETS = [self.location.href];
-self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
-self.addEventListener('activate', e => { e.waitUntil(clients.claim()); });
-self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  e.respondWith(caches.match(e.request).then(cached => {
-    const fetchPromise = fetch(e.request).then(res => {
-      if (res && res.status === 200) { const clone = res.clone(); caches.open(CACHE).then(c => c.put(e.request, clone)); }
-      return res;
-    }).catch(() => cached);
-    return cached || fetchPromise;
-  }));
-});`;
-  if ('serviceWorker' in navigator) {
-    const blob = new Blob([swCode], { type: 'application/javascript' });
-    navigator.serviceWorker.register(URL.createObjectURL(blob), { scope: '/' }).catch(() => {});
-  }
-})();
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 function updateOnlineStatus() { document.getElementById('offline-badge').classList.toggle('show', !navigator.onLine); }
 window.addEventListener('online', updateOnlineStatus);
@@ -466,35 +450,31 @@ function dismissBanner() { localStorage.setItem(BANNER_DISMISSED_KEY, '1'); cons
   if (isIOS && !window.navigator.standalone && !localStorage.getItem(BANNER_DISMISSED_KEY)) showInstallBanner('ios');
 })();
 
+// ── AUTH ─────────────────────────────────────────────────
 const SB_URL = 'https://wkzaebbfhytuauioqjqw.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndremFlYmJmaHl0dWF1aW9xanF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTY2NzgsImV4cCI6MjA5NTU3MjY3OH0.DyrWDmxKqFFhr_geNapCJMlhb2lrpVhCYEQvvGzGjMw';
 let CURRENT_USER = null, ACCESS_TOKEN = null;
 
-async function sbFetch(path, opts = {}) {
-  const token = ACCESS_TOKEN || SB_KEY;
-  try {
-    const res = await fetch(SB_URL + '/rest/v1/' + path, { ...opts, headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', 'Prefer': opts.prefer || 'return=representation', ...(opts.headers || {}) } });
-    if (!res.ok) return null;
-    const text = await res.text(); return text ? JSON.parse(text) : [];
-  } catch(e) { return null; }
-}
 async function sbAuthFetch(path, opts = {}) {
   try {
     const res = await fetch(SB_URL + '/auth/v1/' + path, { ...opts, headers: { 'apikey': SB_KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
-    const text = await res.text(); return text ? JSON.parse(text) : null;
-  } catch(e) { return null; }
+    const text = await res.text(); return text ? JSON.parse(text) : {};
+  } catch(e) { return null; } // null = network error
 }
 function getUserId() { return CURRENT_USER ? CURRENT_USER.id : null; }
+function jwtExp(token) {
+  try { return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp * 1000; } catch(e) { return 0; }
+}
 
 async function handleAuthRedirect() {
   const hash = window.location.hash;
   if (hash && hash.includes('access_token')) {
     const params = new URLSearchParams(hash.slice(1));
     const access_token = params.get('access_token'), refresh_token = params.get('refresh_token');
+    window.history.replaceState({}, '', window.location.pathname);
     if (access_token) {
       localStorage.setItem('fitdash_access_token', access_token);
       if (refresh_token) localStorage.setItem('fitdash_refresh_token', refresh_token);
-      window.history.replaceState({}, '', window.location.pathname);
       await loadSession(access_token); return true;
     }
   }
@@ -504,134 +484,242 @@ async function loadSession(token) {
   if (!token) return false;
   ACCESS_TOKEN = token;
   const data = await sbAuthFetch('user', { headers: { 'Authorization': 'Bearer ' + token } });
-  if (data && data.id) { CURRENT_USER = data; showAuthUI(true); return true; }
-  ACCESS_TOKEN = null; localStorage.removeItem('fitdash_access_token'); showAuthUI(false); return false;
-}
-async function tryRefreshSession() {
-  const refresh_token = localStorage.getItem('fitdash_refresh_token');
-  if (!refresh_token) return false;
-  const data = await sbAuthFetch('token?grant_type=refresh_token', { method: 'POST', body: JSON.stringify({ refresh_token }) });
-  if (data && data.access_token) {
-    localStorage.setItem('fitdash_access_token', data.access_token);
-    if (data.refresh_token) localStorage.setItem('fitdash_refresh_token', data.refresh_token);
-    return await loadSession(data.access_token);
+  if (data && data.id) {
+    CURRENT_USER = data;
+    localStorage.setItem('fitdash_user', JSON.stringify({ id: data.id, email: data.email, user_metadata: data.user_metadata }));
+    return true;
   }
+  if (data === null) {
+    // offline: keep the session using the cached profile
+    try { const u = JSON.parse(localStorage.getItem('fitdash_user')); if (u && u.id) { CURRENT_USER = u; return true; } } catch(e) {}
+    return false;
+  }
+  ACCESS_TOKEN = null; localStorage.removeItem('fitdash_access_token');
   return false;
+}
+let refreshing = null;
+function tryRefreshSession() {
+  if (!refreshing) refreshing = (async () => {
+    const refresh_token = localStorage.getItem('fitdash_refresh_token');
+    if (!refresh_token) return false;
+    const data = await sbAuthFetch('token?grant_type=refresh_token', { method: 'POST', body: JSON.stringify({ refresh_token }) });
+    if (data && data.access_token) {
+      localStorage.setItem('fitdash_access_token', data.access_token);
+      if (data.refresh_token) localStorage.setItem('fitdash_refresh_token', data.refresh_token);
+      return await loadSession(data.access_token);
+    }
+    if (data) { // refresh token rejected: session is really over
+      localStorage.removeItem('fitdash_refresh_token'); localStorage.removeItem('fitdash_access_token');
+      ACCESS_TOKEN = null; CURRENT_USER = null; showAuthUI();
+    }
+    return false;
+  })().finally(() => { refreshing = null; });
+  return refreshing;
+}
+async function ensureFreshToken() {
+  if (ACCESS_TOKEN && jwtExp(ACCESS_TOKEN) - Date.now() < 60000) await tryRefreshSession();
 }
 function signInWithGoogle() { window.location.href = `${SB_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(window.location.href.split('#')[0])}`; }
 async function signOut() {
-  if (ACCESS_TOKEN) await sbAuthFetch('logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + ACCESS_TOKEN } });
+  const name = CURRENT_USER?.user_metadata?.full_name || CURRENT_USER?.email || 'this account';
+  if (!confirm(`Sign out of ${name}?\n\nYour data stays in the cloud and comes back when you sign in again.`)) return;
+  await sync();
+  if (ACCESS_TOKEN) sbAuthFetch('logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + ACCESS_TOKEN } });
+  // keep this user's data off the screen for whoever uses the device next
+  try { localStorage.setItem(KEY + '_' + S.owner, JSON.stringify(S)); } catch(e) {}
+  S = emptyState(); save();
   ACCESS_TOKEN = null; CURRENT_USER = null;
-  localStorage.removeItem('fitdash_access_token'); localStorage.removeItem('fitdash_refresh_token');
-  showAuthUI(false);
+  ['fitdash_access_token','fitdash_refresh_token','fitdash_user'].forEach(k => localStorage.removeItem(k));
+  showAuthUI(); renderAll();
 }
-function showAuthUI(loggedIn) {
-  let bar = document.getElementById('auth-bar');
-  if (!bar) { bar = document.createElement('div'); bar.id = 'auth-bar'; bar.style.cssText = 'position:fixed;bottom:calc(64px + var(--safe-bottom) + 8px);right:12px;z-index:150;'; document.body.appendChild(bar); }
-  if (loggedIn && CURRENT_USER) {
+
+let syncState = '';
+function showAuthUI() {
+  const slot = document.getElementById('auth-slot');
+  if (!slot) return;
+  if (CURRENT_USER) {
     const name = CURRENT_USER.user_metadata?.full_name || CURRENT_USER.email || 'You';
     const avatar = CURRENT_USER.user_metadata?.avatar_url;
-    bar.innerHTML = `<div style="display:flex;align-items:center;gap:6px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:20px;padding:5px 10px 5px 6px;cursor:pointer;" onclick="signOut()" title="Sign out">${avatar ? `<img src="${avatar}" style="width:20px;height:20px;border-radius:50%;flex-shrink:0;">` : '<div style="width:20px;height:20px;border-radius:50%;background:var(--accent-dim);flex-shrink:0;"></div>'}<span style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</span></div>`;
+    slot.innerHTML = `<div class="auth-pill" onclick="signOut()" title="Signed in as ${escHtml(name)} — tap to sign out">
+      ${avatar ? `<img src="${escHtml(avatar)}" referrerpolicy="no-referrer" alt="">` : '<div class="avatar-ph"></div>'}
+      <span class="auth-name">${escHtml(name.split(' ')[0])}</span>
+      <span class="sync-dot ${syncState}" id="sync-dot"></span></div>`;
   } else {
-    bar.innerHTML = `<button onclick="signInWithGoogle()" style="display:flex;align-items:center;gap:8px;background:var(--bg2);border:0.5px solid var(--border2);border-radius:20px;padding:7px 14px;cursor:pointer;font-family:DM Sans,sans-serif;font-size:12px;font-weight:500;color:var(--text2);"><svg width="14" height="14" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Sign in with Google</button>`;
+    slot.innerHTML = `<button class="auth-pill" onclick="signInWithGoogle()" style="padding:7px 12px;font-size:12px;font-weight:500;color:var(--text2)"><svg width="14" height="14" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>Sign in to sync</button>`;
   }
 }
-
-function showSyncStatus(state) {
-  let el = document.getElementById('sync-status');
-  if (!el) { el = document.createElement('div'); el.id = 'sync-status'; el.style.cssText = 'position:fixed;top:calc(var(--safe-top) + 8px);right:12px;font-size:10px;font-family:DM Mono,monospace;padding:3px 8px;border-radius:20px;z-index:300;transition:all .3s;pointer-events:none;'; document.body.appendChild(el); }
-  if (state === 'syncing') { el.style.background='rgba(79,163,232,0.2)'; el.style.color='#4fa3e8'; el.textContent='⟳ syncing'; el.style.opacity='1'; }
-  else if (state === 'ok') { el.style.background='rgba(200,241,53,0.15)'; el.style.color='var(--accent)'; el.textContent='✓ synced'; el.style.opacity='1'; setTimeout(() => { el.style.opacity='0'; }, 2000); }
-  else if (state === 'offline') { el.style.background='rgba(255,95,87,0.15)'; el.style.color='var(--red)'; el.textContent='● offline'; el.style.opacity='1'; }
+function setSyncState(state) {
+  syncState = state;
+  const dot = document.getElementById('sync-dot');
+  if (dot) { dot.className = 'sync-dot ' + state; dot.title = { ok: 'Synced', syncing: 'Syncing…', error: 'Sync failed — will retry', offline: 'Offline' }[state] || ''; }
 }
 
-const KEY = 'fitdash_v1';
-let S = { todos: [], exercises: [], cardio: [], bodyweights: [] };
-function load() { try { const d = localStorage.getItem(KEY); if (d) S = JSON.parse(d); } catch(e) {} }
+// ── STATE ────────────────────────────────────────────────
+// Items carry id (string), c (created ms, for ordering) and t (last edit ms, newest wins).
+// Deletes leave a tombstone in S.tomb; S.dirty lists records still to push.
+const KEY = 'fitdash_v2';
+const COLLS = ['exercises', 'cardio', 'bodyweights', 'todos'];
+function emptyState() { return { exercises: [], cardio: [], bodyweights: [], todos: [], habits: {}, tomb: {}, dirty: {}, owner: null, lastPull: null, importedOld: false }; }
+let S = emptyState();
+function load() { try { const d = localStorage.getItem(KEY); if (d) S = { ...emptyState(), ...JSON.parse(d) }; } catch(e) {} }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
-load();
+function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function dateKey(ddmmyyyy) { return String(ddmmyyyy).split('/').reverse().join(''); }
+function normDate(d) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : d; }
+function markDirty(coll, id) { S.dirty[coll + '|' + id] = 1; }
+function addItem(coll, item) { const n = Date.now(); item = { id: newId(), c: n, t: n, ...item }; S[coll].push(item); markDirty(coll, item.id); return item; }
+function touchItem(coll, item) { item.t = Date.now(); markDirty(coll, item.id); }
+function removeItem(coll, id) { S[coll] = S[coll].filter(x => x.id !== id); S.tomb[coll + '|' + id] = Date.now(); markDirty(coll, id); }
+function sortAll() {
+  const byDateThenCreated = (a, b) => dateKey(b.date).localeCompare(dateKey(a.date)) || (b.c || 0) - (a.c || 0);
+  S.exercises.sort(byDateThenCreated); S.cardio.sort(byDateThenCreated); S.bodyweights.sort(byDateThenCreated);
+  S.todos.sort((a, b) => (b.c || 0) - (a.c || 0));
+}
+function commit() { sortAll(); save(); renderAll(); scheduleSync(); }
 
-// Fix old todos that are missing id field
-if (S.todos && S.todos.length) {
-  const today = new Date().toLocaleDateString('en-GB');
-  S.todos = S.todos.map((t, i) => ({
-    id: t.id || (t.text ? Math.abs(t.text.charCodeAt(0) * 1000 + i) : Date.now() + i),
-    text: t.text || '',
-    done: t.done || false,
-    date: t.date || today,
-    synced: t.synced || false,
-    ...(t.sb_id && { sb_id: t.sb_id }),
-    ...(t._dirty && { _dirty: t._dirty })
+function migrateV1() {
+  if (localStorage.getItem(KEY)) return;
+  let old = null;
+  try { old = JSON.parse(localStorage.getItem('fitdash_v1')); } catch(e) {}
+  if (old) {
+    COLLS.forEach(coll => (old[coll] || []).forEach(it => {
+      const { synced, _dirty, sb_id, id, ...rest } = it;
+      const c = typeof id === 'number' && id > 1e12 ? id : 0;
+      const nid = sb_id ? 'sb' + sb_id : String(id || newId());
+      if (S[coll].some(x => x.id === nid)) return;
+      S[coll].push({ ...rest, id: nid, c, t: c || 1 });
+      markDirty(coll, nid);
+    }));
+  }
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith('habits_')) continue;
+    const date = k.slice(7);
+    let ids = []; try { ids = JSON.parse(localStorage.getItem(k)) || []; } catch(e) {}
+    ids.forEach(hid => { (S.habits[date] ||= {})[hid] = { v: true, t: 1 }; markDirty('habits', date + '~' + hid); });
+  }
+  sortAll(); save();
+}
+load(); migrateV1();
+
+// ── SYNC ─────────────────────────────────────────────────
+async function api(path, opts = {}, retry = true) {
+  await ensureFreshToken();
+  if (!ACCESS_TOKEN) throw new Error('signed out');
+  const res = await fetch(SB_URL + '/rest/v1/' + path, { ...opts, headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + ACCESS_TOKEN, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+  if (res.status === 401 && retry && await tryRefreshSession()) return api(path, opts, false);
+  if (!res.ok) throw new Error(res.status + ' ' + await res.text());
+  const text = await res.text(); return text ? JSON.parse(text) : null;
+}
+
+function localT(coll, id) {
+  if (coll === 'habits') { const j = id.lastIndexOf('~'); return S.habits[id.slice(0, j)]?.[id.slice(j + 1)]?.t || 0; }
+  const it = S[coll]?.find(x => x.id === id);
+  return it ? it.t : (S.tomb[coll + '|' + id] || 0);
+}
+function recordFor(key) {
+  const i = key.indexOf('|'), coll = key.slice(0, i), id = key.slice(i + 1);
+  if (coll === 'habits') {
+    const j = id.lastIndexOf('~'), h = S.habits[id.slice(0, j)]?.[id.slice(j + 1)];
+    return h ? { coll, id, data: { v: h.v }, t: h.t, del: false } : null;
+  }
+  const it = S[coll]?.find(x => x.id === id);
+  if (it) { const { id: _, t, ...data } = it; return { coll, id, data, t, del: false }; }
+  const tt = S.tomb[key];
+  return tt ? { coll, id, data: null, t: tt, del: true } : null;
+}
+function applyRemote(r) {
+  const key = r.coll + '|' + r.id, lt = localT(r.coll, r.id);
+  if (r.t < lt) { S.dirty[key] = 1; return false; }
+  if (r.t === lt) return false;
+  if (r.coll === 'habits') {
+    const j = r.id.lastIndexOf('~');
+    (S.habits[r.id.slice(0, j)] ||= {})[r.id.slice(j + 1)] = { v: !!r.data?.v, t: r.t };
+  } else if (COLLS.includes(r.coll)) {
+    S[r.coll] = S[r.coll].filter(x => x.id !== r.id);
+    if (r.del) S.tomb[key] = r.t;
+    else { delete S.tomb[key]; S[r.coll].push({ ...r.data, id: r.id, t: r.t }); }
+  } else return false;
+  delete S.dirty[key];
+  return true;
+}
+
+async function pull() {
+  // 10 s overlap guards against rows committed slightly out of order; re-applying is harmless
+  const from = S.lastPull ? new Date(Date.parse(S.lastPull) - 10000).toISOString() : null;
+  let offset = 0, max = S.lastPull;
+  for (;;) {
+    const rows = await api(`fitdash_records?select=coll,id,data,t,del,updated_at${from ? '&updated_at=gt.' + encodeURIComponent(from) : ''}&order=updated_at.asc&limit=1000&offset=${offset}`);
+    rows.forEach(r => { applyRemote(r); if (!max || Date.parse(r.updated_at) > Date.parse(max)) max = r.updated_at; });
+    if (rows.length < 1000) break;
+    offset += 1000;
+  }
+  S.lastPull = max;
+}
+async function push() {
+  const keys = Object.keys(S.dirty);
+  for (let i = 0; i < keys.length; i += 500) {
+    const rows = keys.slice(i, i + 500).map(recordFor).filter(Boolean).map(r => ({ ...r, user_id: getUserId() }));
+    if (rows.length) await api('fitdash_records?on_conflict=user_id,coll,id', { method: 'POST', headers: { 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify(rows) });
+    rows.forEach(r => { if (localT(r.coll, r.id) === r.t) delete S.dirty[r.coll + '|' + r.id]; });
+  }
+}
+// One-time import of rows from the old per-table schema (exercises, cardio, …).
+async function importOld() {
+  const uid = getUserId();
+  const get = t => api(`${t}?user_id=eq.${uid}&limit=5000`).catch(() => []);
+  const [ex, ca, bw, td, hb] = await Promise.all(['exercises', 'cardio', 'bodyweights', 'todos', 'habits'].map(get));
+  const add = (coll, id, data) => { if (localT(coll, id)) return; S[coll].push({ ...data, id, t: 1 }); markDirty(coll, id); };
+  const c = r => Date.parse(r.created_at) || 0;
+  ex.forEach(e => add('exercises', 'sb' + e.id, { name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: normDate(e.date), c: c(e) }));
+  ca.forEach(x => add('cardio', 'sb' + x.id, { type: x.type, dur: x.duration, dist: x.distance, date: normDate(x.date), c: c(x) }));
+  bw.forEach(b => add('bodyweights', 'sb' + b.id, { val: b.val, date: normDate(b.date), c: c(b) }));
+  td.forEach(x => add('todos', 'sb' + x.id, { text: x.text, done: x.done, date: normDate(x.date), c: c(x) }));
+  hb.forEach(h => (h.habit_ids || []).forEach(hid => {
+    const date = normDate(h.date), day = (S.habits[date] ||= {});
+    if (!day[hid]) { day[hid] = { v: true, t: 1 }; markDirty('habits', date + '~' + hid); }
   }));
-  save();
+  S.importedOld = true;
 }
 
-let syncTimer = null;
-function scheduleSyncUp() { clearTimeout(syncTimer); syncTimer = setTimeout(syncUp, 1500); }
+// Local data made while signed out belongs to whoever signs in next;
+// a different account on the same device gets its own copy.
+function adoptOwner(uid) {
+  if (S.owner === uid) return;
+  if (S.owner) {
+    try { localStorage.setItem(KEY + '_' + S.owner, JSON.stringify(S)); } catch(e) {}
+    let stash = null; try { stash = JSON.parse(localStorage.getItem(KEY + '_' + uid)); } catch(e) {}
+    S = stash ? { ...emptyState(), ...stash } : emptyState();
+  }
+  S.owner = uid;
+  save(); renderAll();
+}
 
-async function syncUp() {
-  const uid = getUserId();
-  if (!uid) return;
-  if (!navigator.onLine) { showSyncStatus('offline'); return; }
-  showSyncStatus('syncing');
+let syncing = false, syncAgain = false, syncTimer = null;
+function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(sync, 800); }
+async function sync() {
+  if (!getUserId()) return;
+  if (syncing) { syncAgain = true; return; }
+  if (!navigator.onLine) { setSyncState('offline'); return; }
+  syncing = true; setSyncState('syncing');
   try {
-    for (const e of S.exercises.filter(x => !x.synced)) {
-      const r = await sbFetch('exercises', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date }) });
-      if (r && r[0]) { e.synced = true; e.sb_id = r[0].id; }
-    }
-    for (const c of S.cardio.filter(x => !x.synced)) {
-      const r = await sbFetch('cardio', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, type: c.type, duration: c.dur, distance: c.dist, date: c.date }) });
-      if (r && r[0]) { c.synced = true; c.sb_id = r[0].id; }
-    }
-    for (const b of S.bodyweights.filter(x => !x.synced)) {
-      const r = await sbFetch('bodyweights', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, val: b.val, date: b.date }) });
-      if (r && r[0]) { b.synced = true; b.sb_id = r[0].id; }
-    }
-    for (const t of S.todos.filter(x => !x.synced)) {
-      const r = await sbFetch('todos', { method: 'POST', prefer: 'return=representation', body: JSON.stringify({ user_id: uid, text: t.text, done: t.done, date: t.date }) });
-      if (r && r[0]) { t.synced = true; t.sb_id = r[0].id; }
-    }
-    for (const t of S.todos.filter(x => x.synced && x.sb_id && x._dirty)) {
-      await sbFetch(`todos?id=eq.${t.sb_id}`, { method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify({ done: t.done }) });
-      delete t._dirty;
-    }
-    const allHabitDates = new Set();
-    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('habits_')) allHabitDates.add(k.replace('habits_', '')); }
-    for (const date of allHabitDates) {
-      const habit_ids = getHabitsDoneFor(date);
-      const patch = await sbFetch(`habits?user_id=eq.${uid}&date=eq.${encodeURIComponent(date)}`, { method: 'PATCH', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ habit_ids, updated_at: new Date().toISOString() }) });
-      if (!patch || patch.length === 0) await sbFetch('habits', { method: 'POST', headers: { 'Prefer': 'return=minimal' }, body: JSON.stringify({ user_id: uid, date, habit_ids }) });
-    }
-    save(); showSyncStatus('ok');
-  } catch(e) { showSyncStatus('offline'); }
+    await pull();
+    if (!S.importedOld) await importOld();
+    await push();
+    sortAll(); save(); renderAll();
+    setSyncState('ok');
+  } catch(e) {
+    console.warn('sync failed', e);
+    setSyncState(navigator.onLine ? 'error' : 'offline');
+  }
+  syncing = false;
+  if (syncAgain) { syncAgain = false; sync(); }
 }
 
-async function syncDown() {
-  const uid = getUserId();
-  if (!uid) return;
-  if (!navigator.onLine) { showSyncStatus('offline'); return; }
-  showSyncStatus('syncing');
-  try {
-    const [exData, cardioData, bwData, todoData, habitData] = await Promise.all([
-      sbFetch(`exercises?user_id=eq.${uid}&order=created_at.desc&limit=200`),
-      sbFetch(`cardio?user_id=eq.${uid}&order=created_at.desc&limit=200`),
-      sbFetch(`bodyweights?user_id=eq.${uid}&order=created_at.desc&limit=100`),
-      sbFetch(`todos?user_id=eq.${uid}&order=created_at.desc&limit=200`),
-      sbFetch(`habits?user_id=eq.${uid}&limit=500`),
-    ]);
-    if (exData) S.exercises = exData.map(e => ({ id: e.id, sb_id: e.id, name: e.name, sets: e.sets, reps: e.reps, weight: e.weight, pr: e.pr, date: e.date, synced: true }));
-    if (cardioData) S.cardio = cardioData.map(c => ({ id: c.id, sb_id: c.id, type: c.type, dur: c.duration, dist: c.distance, date: c.date, synced: true }));
-    if (bwData) S.bodyweights = bwData.map(b => ({ id: b.id, sb_id: b.id, val: b.val, date: b.date, synced: true }));
-    if (todoData) S.todos = todoData.map(t => ({ id: t.id, sb_id: t.id, text: t.text, done: t.done, date: t.date, synced: true }));
-    if (habitData) habitData.forEach(h => { try { localStorage.setItem('habits_' + h.date, JSON.stringify(h.habit_ids)); } catch(e) {} });
-    save(); showSyncStatus('ok');
-    renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar();
-  } catch(e) { showSyncStatus('offline'); }
-}
-
-document.addEventListener('visibilitychange', () => { if (!document.hidden) syncDown(); });
-window.addEventListener('online', () => { showSyncStatus('syncing'); syncDown(); syncUp(); });
-window.addEventListener('offline', () => showSyncStatus('offline'));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { initDateTime(); renderAll(); sync(); } });
+window.addEventListener('online', () => sync());
+window.addEventListener('offline', () => setSyncState('offline'));
+setInterval(() => { if (!document.hidden) sync(); }, 30000);
 
 const HABITS = [
   { id: 'steps',   label: '10,000 steps', icon: '👟', color: 'var(--c-steps)'   },
@@ -641,8 +729,7 @@ const HABITS = [
   { id: 'reading', label: 'Book reading', icon: '📖', color: 'var(--c-reading)' },
 ];
 
-function habitsKey(dateStr) { return 'habits_' + dateStr; }
-function getHabitsDoneFor(dateStr) { try { return JSON.parse(localStorage.getItem(habitsKey(dateStr)) || '[]'); } catch(e) { return []; } }
+function getHabitsDoneFor(dateStr) { const day = S.habits[dateStr] || {}; return HABITS.map(h => h.id).filter(id => day[id]?.v); }
 function todayStr() { return fmtDate(new Date()); }
 
 function getHabitStreak(habitId) {
@@ -659,11 +746,14 @@ function getHabitStreak(habitId) {
 }
 
 function toggleHabit(id) {
-  const key = habitsKey(todayStr());
-  let done = getHabitsDoneFor(todayStr());
-  done = done.includes(id) ? done.filter(x => x !== id) : [...done, id];
-  try { localStorage.setItem(key, JSON.stringify(done)); } catch(e) {}
-  renderTodos(); renderDashboard(); scheduleSyncUp();
+  const date = todayStr(), day = (S.habits[date] ||= {});
+  day[id] = { v: !day[id]?.v, t: Date.now() };
+  markDirty('habits', date + '~' + id);
+  commit();
+}
+
+function renderAll() {
+  renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar(); renderExercisePicker();
 }
 
 function switchView(v, btn) {
@@ -699,23 +789,18 @@ function addTodo() {
   const inp = document.getElementById('todo-input');
   const txt = inp.value.trim();
   if (!txt) return;
-  S.todos.unshift({ id: Date.now(), text: txt, done: false, date: todayStr(), synced: false });
+  addItem('todos', { text: txt, done: false, date: todayStr() });
   inp.value = '';
-  save(); renderTodos(); renderDashboard(); scheduleSyncUp();
+  commit();
 }
 
 function toggleTodo(id) {
   const t = S.todos.find(x => x.id === id);
-  if (t) { t.done = !t.done; if (t.synced) t._dirty = true; }
-  save(); renderTodos(); renderDashboard(); scheduleSyncUp();
+  if (t) { t.done = !t.done; touchItem('todos', t); }
+  commit();
 }
 
-function deleteTodo(id) {
-  const t = S.todos.find(x => x.id === id);
-  if (t && t.sb_id) sbFetch(`todos?id=eq.${t.sb_id}`, { method: 'DELETE', prefer: 'return=minimal' });
-  S.todos = S.todos.filter(x => x.id !== id);
-  save(); renderTodos(); renderDashboard();
-}
+function deleteTodo(id) { removeItem('todos', id); commit(); }
 
 function renderTodos() {
   const done = getHabitsDoneFor(todayStr());
@@ -743,11 +828,11 @@ function renderTodos() {
   const tods = S.todos.filter(t => !t.done || t.date === todayStr());
   el.innerHTML = tods.length ? tods.map(t => `
     <div class="todo-item">
-      <div class="todo-check ${t.done?'done':''}" data-todo-id="${t.id}" style="cursor:pointer" role="checkbox">
+      <div class="todo-check ${t.done?'done':''}" data-todo-id="${escHtml(t.id)}" style="cursor:pointer" role="checkbox">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
       <span class="todo-text ${t.done?'done':''}">${escHtml(t.text)}</span>
-      <span class="todo-del" data-todo-del="${t.id}" style="cursor:pointer">×</span>
+      <span class="todo-del" data-todo-del="${escHtml(t.id)}" style="cursor:pointer">×</span>
     </div>`).join('') : '';
 
   el.querySelectorAll('[data-todo-id]').forEach(btn => {
@@ -761,28 +846,27 @@ function renderTodos() {
 }
 
 function todoCheckClick(e) {
-  const id = parseInt(e.currentTarget.dataset.todoId);
-  toggleTodo(id);
+  toggleTodo(e.currentTarget.dataset.todoId);
 }
 
 function todoDelClick(e) {
-  const id = parseInt(e.currentTarget.dataset.todoDel);
-  deleteTodo(id);
+  deleteTodo(e.currentTarget.dataset.todoDel);
 }
 
 // ── SETS STATE ───────────────────────────────────────────
 let currentSets = [];
 
 function calcEpley(reps, weight) {
-  if (!weight || !reps || reps >= 37) return null;
   const w = parseFloat(weight), r = parseInt(reps);
+  if (!w || !r || r >= 37) return null;
+  if (r === 1) return w;
   return Math.round((w * (1 + r / 30)) * 10) / 10;
 }
 
-function addSet(reps, weight) {
+function addSet(reps, weight, focus = true) {
   currentSets.push({ reps: reps !== undefined ? reps : '', weight: weight !== undefined ? weight : '', rpe: '' });
   renderSetsList();
-  setTimeout(() => {
+  if (focus) setTimeout(() => {
     const rows = document.querySelectorAll('.set-row');
     if (rows.length) rows[rows.length-1].querySelector('input').focus();
   }, 50);
@@ -800,22 +884,28 @@ function renderSetsList() {
     const orm = calcEpley(s.reps, s.weight);
     return `
     <div class="set-row">
-      <span class="set-num">Set ${i+1}</span>
-      <input type="number" min="1" max="100" placeholder="reps" value="${s.reps}"
-        oninput="currentSets[${i}].reps=this.value; renderSetsList()"
+      <span class="set-num">Set ${i+1}<span class="set-orm">${orm ? '1RM ' + orm : ''}</span></span>
+      <input type="number" inputmode="numeric" min="1" max="100" placeholder="reps" value="${s.reps}"
+        oninput="onSetInput(${i},'reps',this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
-      <input type="number" min="0" max="500" step="0.5" placeholder="kg" value="${s.weight}"
-        oninput="currentSets[${i}].weight=this.value; renderSetsList()"
+      <input type="number" inputmode="decimal" min="0" max="500" step="0.5" placeholder="kg" value="${s.weight}"
+        oninput="onSetInput(${i},'weight',this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
-      <input type="number" min="1" max="10" placeholder="RPE" value="${s.rpe}" class="rpe-in"
-        oninput="currentSets[${i}].rpe=this.value"
+      <input type="number" inputmode="numeric" min="1" max="10" placeholder="RPE" value="${s.rpe}" class="rpe-in"
+        oninput="onSetInput(${i},'rpe',this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();addSet()}">
       <span class="set-del" onclick="removeSet(${i})">×</span>
-      ${orm ? `<div style="position:absolute;right:0;bottom:-16px;font-size:9px;color:var(--text3);font-family:DM Mono,monospace;white-space:nowrap">1RM ~${orm}</div>` : ''}
     </div>`;
   }).join('');
   const btn = document.getElementById('log-ex-btn');
   if (btn) btn.textContent = currentSets.length ? `Log exercise — ${currentSets.length} set${currentSets.length>1?'s':''}` : 'Log exercise';
+}
+
+// Update state and the row's 1RM in place; re-rendering here would steal focus from the input.
+function onSetInput(i, field, input) {
+  currentSets[i][field] = input.value;
+  const orm = calcEpley(currentSets[i].reps, currentSets[i].weight);
+  input.closest('.set-row').querySelector('.set-orm').textContent = orm ? '1RM ' + orm : '';
 }
 
 function logExercise() {
@@ -830,25 +920,20 @@ function logExercise() {
     if (e.sets_data) return Math.max(...e.sets_data.map(s => parseFloat(s.weight)||0));
     return parseFloat(e.weight)||0;
   })) : 0;
-  const pr = maxWeight > 0 && maxWeight > prevMax;
-  S.exercises.unshift({
-    id: Date.now(), name, notes,
+  const pr = prev.length > 0 && maxWeight > prevMax; // a first-ever log is a baseline, not a PR
+  addItem('exercises', {
+    name, notes,
     sets_data: validSets.map(s => ({ reps: parseInt(s.reps)||0, weight: parseFloat(s.weight)||0, rpe: s.rpe ? parseInt(s.rpe) : null })),
     sets: validSets.length, reps: parseInt(validSets[0].reps)||0, weight: maxWeight,
-    pr, date: todayStr(), synced: false
+    pr, date: todayStr()
   });
-  save(); renderExLog(); renderDashboard(); scheduleSyncUp();
   clearExercisePicker();
+  commit();
 }
 
-function deleteExercise(id) {
-  const e = S.exercises.find(x => x.id === id);
-  if (e && e.sb_id) sbFetch(`exercises?id=eq.${e.sb_id}`, { method: 'DELETE', prefer: 'return=minimal' });
-  S.exercises = S.exercises.filter(x => x.id !== id);
-  save(); renderExLog(); renderDashboard();
-}
+function deleteExercise(id) { removeItem('exercises', id); commit(); }
 
-let expandedDays = new Set([new Date().toLocaleDateString('en-GB')]);
+let expandedDays = new Set([todayStr()]);
 
 function fmtSetsData(e) {
   if (e.sets_data && e.sets_data.length) {
@@ -880,7 +965,7 @@ function renderExLog() {
       return null;
     }).filter(Boolean))].join(', ');
     return `<div style="border-bottom:0.5px solid var(--border)">
-      <div onclick="toggleDayLog('${date}')" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;cursor:pointer;">
+      <div onclick="toggleDayLog(${jsArg(date)})" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;cursor:pointer;">
         <div>
           <div style="font-size:14px;font-weight:600;color:var(--text)">${isToday?'Today':date}${prs?` <span class="pr-badge">${prs} PR</span>`:''}</div>
           <div style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;margin-top:2px">${exs.length} exercises${muscles?' · '+muscles:''}</div>
@@ -890,11 +975,11 @@ function renderExLog() {
       ${isExpanded ? `<div style="padding-bottom:8px">${exs.map(e => `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0 7px 12px;border-top:0.5px solid var(--border)">
           <div style="flex:1">
-            <div style="font-size:13px;font-weight:500;color:var(--text);cursor:pointer;" onclick="showExerciseProgress('${e.name.replace(/'/g,"\\'")}')">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div>
+            <div style="font-size:13px;font-weight:500;color:var(--text);cursor:pointer;" onclick="showExerciseProgress(${jsArg(e.name)})">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div>
             <div style="font-size:11px;color:var(--text2);font-family:DM Mono,monospace;margin-top:1px">${fmtSetsData(e)}</div>
             ${e.notes ? `<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:3px">"${escHtml(e.notes)}"</div>` : ''}
           </div>
-          <span class="log-del" onclick="deleteExercise(${e.id})">×</span>
+          <span class="log-del" onclick="deleteExercise(${jsArg(e.id)})">×</span>
         </div>`).join('')}</div>` : ''}
     </div>`;
   }).join('');
@@ -944,18 +1029,13 @@ function logCardio() {
   const dur = parseInt(document.getElementById('cardio-dur').value) || 0;
   const dist = parseFloat(document.getElementById('cardio-dist').value) || 0;
   if (!dur) { shake('cardio-dur'); return; }
-  S.cardio.unshift({ id: Date.now(), type, dur, dist, date: todayStr(), synced: false });
-  save(); renderCardioLog(); renderDashboard(); scheduleSyncUp();
+  addItem('cardio', { type, dur, dist, date: todayStr() });
+  commit();
   document.getElementById('cardio-dur').value = '';
   document.getElementById('cardio-dist').value = '';
 }
 
-function deleteCardio(id) {
-  const c = S.cardio.find(x => x.id === id);
-  if (c && c.sb_id) sbFetch(`cardio?id=eq.${c.sb_id}`, { method: 'DELETE', prefer: 'return=minimal' });
-  S.cardio = S.cardio.filter(x => x.id !== id);
-  save(); renderCardioLog(); renderDashboard();
-}
+function deleteCardio(id) { removeItem('cardio', id); commit(); }
 
 function renderCardioLog() {
   const el = document.getElementById('cardio-log');
@@ -966,15 +1046,17 @@ function renderCardioLog() {
   el.innerHTML = S.cardio.slice(0, 30).map(c => `
     <div class="log-entry">
       <div><div class="log-name">${escHtml(c.type)}</div><div class="log-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''} · ${c.date}</div></div>
-      <span class="log-del" onclick="deleteCardio(${c.id})">×</span>
+      <span class="log-del" onclick="deleteCardio(${jsArg(c.id)})">×</span>
     </div>`).join('');
 }
 
 function logBodyweight() {
   const val = parseFloat(document.getElementById('bw-val').value);
   if (!val || val < 20 || val > 300) { shake('bw-val'); return; }
-  S.bodyweights.unshift({ id: Date.now(), val, date: todayStr(), synced: false });
-  save(); renderBWChart(); renderDashboard(); scheduleSyncUp();
+  const existing = S.bodyweights.find(b => b.date === todayStr());
+  if (existing) { existing.val = val; touchItem('bodyweights', existing); }
+  else addItem('bodyweights', { val, date: todayStr() });
+  commit();
   document.getElementById('bw-val').value = '';
 }
 
@@ -1049,21 +1131,12 @@ function renderDashboard() {
   const prs = S.exercises.filter(e => e.pr).length;
   const allDone = habitsDone.length === HABITS.length;
 
-  let bwTrend7 = null, bwTrend30 = null;
-  if (bw && S.bodyweights.length > 1) {
-    const d7 = S.bodyweights.find((b, i) => {
-      const d = new Date(); d.setDate(d.getDate() - 7);
-      return b.date === fmtDate(d);
-    });
-    if (d7) bwTrend7 = bw.val - d7.val;
-    const d30 = S.bodyweights.find((b, i) => {
-      const d = new Date(); d.setDate(d.getDate() - 30);
-      return b.date === fmtDate(d);
-    });
-    if (d30) bwTrend30 = bw.val - d30.val;
+  let bwTrend7 = null;
+  if (bw) {
+    const d = new Date(); d.setDate(d.getDate() - 7);
+    const base = S.bodyweights.find(b => dateKey(b.date) <= dateKey(fmtDate(d)));
+    if (base) bwTrend7 = bw.val - base.val;
   }
-
-  const bwClass = bwTrend7 && Math.abs(bwTrend7) > 0.2 ? (bwTrend7 > 0 ? 'up' : 'down') : '';
 
   document.getElementById('dash-stats').innerHTML = `
     <div class="stat-card ${allDone ? 'accent' : ''}">
@@ -1190,6 +1263,7 @@ function closeModal() { document.getElementById('modal-overlay').classList.remov
 document.getElementById('modal-overlay').addEventListener('click', function(e) { if (e.target === this) this.classList.remove('open'); });
 
 function fmtDate(d) { return d.toLocaleDateString('en-GB'); }
+function jsArg(v) { return escHtml(JSON.stringify(v)); }
 function escHtml(str) { return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function shake(id) {
   const el = document.getElementById(id); if (!el) return;
@@ -1217,7 +1291,7 @@ function initExercisePicker() {
   const tabs = document.getElementById('ex-muscle-tabs');
   if (!tabs) return;
   tabs.innerHTML = Object.keys(EXERCISES_DB).map(m =>
-    `<button class="gym-tab ${m === activeMuscleTab ? 'active' : ''}" onclick="switchMuscleTab('${m}',this)">${m}</button>`
+    `<button class="gym-tab ${m === activeMuscleTab ? 'active' : ''}" onclick="switchMuscleTab(${jsArg(m)},this)">${escHtml(m)}</button>`
   ).join('');
   renderExercisePicker();
 }
@@ -1235,8 +1309,8 @@ function renderExercisePicker() {
   const exercises = EXERCISES_DB[activeMuscleTab] || [];
   list.innerHTML = exercises.map(ex => {
     const last = getLastLog(ex);
-    return `<div onclick="selectExercise('${ex.replace(/'/g,"\\'")}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;">
-      <span style="font-size:14px;font-weight:500;color:var(--text)">${ex}</span>
+    return `<div onclick="selectExercise(${jsArg(ex)})" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;">
+      <span style="font-size:14px;font-weight:500;color:var(--text)">${escHtml(ex)}</span>
       ${last ? `<span style="font-size:11px;color:var(--text3);font-family:DM Mono,monospace">${last}</span>` : ''}
     </div>`;
   }).join('');
@@ -1265,10 +1339,10 @@ function selectExercise(name) {
   currentSets = [];
   if (last) {
     if (last.sets_data && last.sets_data.length) {
-      last.sets_data.forEach(s => addSet(s.reps, s.weight));
+      last.sets_data.forEach(s => addSet(s.reps, s.weight, false));
       lastText.textContent = last.sets_data.map((s,i) => `Set ${i+1}: ${s.reps} reps${s.weight?' @ '+s.weight+' kg':''}${s.rpe?' RPE'+s.rpe:''}`).join(' · ') + ' · ' + last.date;
     } else {
-      for (let i = 0; i < (last.sets||1); i++) addSet(last.reps, last.weight);
+      for (let i = 0; i < (last.sets||1); i++) addSet(last.reps, last.weight, false);
       lastText.textContent = `${last.sets} × ${last.reps} reps${last.weight?' @ '+last.weight+' kg':''} · ${last.date}`;
     }
     lastDiv.style.display = 'block';
@@ -1302,18 +1376,19 @@ function clearExercisePicker() {
 }
 
 initDateTime();
-renderDashboard();
 initExercisePicker();
-showAuthUI(false);
+renderAll();
+showAuthUI();
 
 (async function init() {
   const redirected = await handleAuthRedirect();
   if (!redirected) {
     const token = localStorage.getItem('fitdash_access_token');
-    if (token) { const ok = await loadSession(token); if (!ok) await tryRefreshSession(); }
-    else showAuthUI(false);
+    if (token && !(await loadSession(token))) await tryRefreshSession();
+    else if (!token) await tryRefreshSession();
   }
-  if (getUserId()) syncDown();
+  showAuthUI();
+  if (getUserId()) { adoptOwner(getUserId()); sync(); }
 })();
 </script>
 </body>
