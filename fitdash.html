@@ -763,12 +763,14 @@ function getHabitStreak(habitId) {
   return streak;
 }
 
-function toggleHabit(id) {
-  const date = todayStr(), day = (S.habits[date] ||= {});
+function toggleHabit(id, date = todayStr()) {
+  const day = (S.habits[date] ||= {});
   day[id] = { v: !day[id]?.v, t: Date.now() };
   markDirty('habits', date + '~' + id);
   commit();
 }
+// From the History day sheet: fix a past day, then redraw the sheet.
+function toggleHabitInModal(id, date) { toggleHabit(id, date); openDayModal(date); }
 
 function renderAll() {
   renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar(); renderExercisePicker(); renderHealthCard();
@@ -1116,9 +1118,9 @@ function renderHealthCard() {
     <ol class="health-steps">
       <li>Shortcuts → <b>New Shortcut</b> → add <b>Find Health Samples</b>: Type <b>Workouts</b>, Start Date <b>is today</b>.</li>
       <li><b>Repeat with Each</b> item, and inside it:</li>
-      <li><b>Format Date</b> → Repeat Item's <b>Start Date</b>, format <b>ISO 8601</b>, include time.</li>
+      <li>Two <b>Format Date</b> actions → Repeat Item's <b>Start Date</b> and <b>End Date</b>, format <b>ISO 8601</b>, include time.</li>
       <li><b>Get Contents of URL</b> → the URL above. Method <b>POST</b>. Header <b>apikey</b> = the apikey above. Request Body <b>JSON</b>:<br>
-        <b>token</b> = your Key · <b>workout</b> = Repeat Item's Type · <b>start</b> = Formatted Date · <b>minutes</b> = Repeat Item's Duration · <b>km</b> = Repeat Item's Distance</li>
+        <b>token</b> = your Key · <b>workout</b> = Repeat Item · <b>start</b> / <b>finish</b> = the two Formatted Dates · <b>w_value</b> = Repeat Item's Value · <b>w_unit</b> = Repeat Item's Unit. Only cardio workouts (run, walk, hike, cycle, swim, row) are added.</li>
     </ol>
     <div class="section-divider">Shortcut 2 — steps (optional)</div>
     <ol class="health-steps">
@@ -1319,10 +1321,10 @@ function openDayModal(dateStr) {
   const cardios = S.cardio.filter(c => c.date === dateStr);
   const bwEntry = S.bodyweights.find(b => b.date === dateStr);
   document.getElementById('modal-sub').textContent = dateStr === todayStr() ? 'Today' : '';
-  let body = '<div class="modal-section-title">Habits</div>';
+  let body = '<div class="modal-section-title">Habits · tap to change</div>';
   body += HABITS.map(h => {
     const done = habits.includes(h.id);
-    return `<div class="modal-habit-row">
+    return `<div class="modal-habit-row" style="cursor:pointer" onclick="toggleHabitInModal(${jsArg(h.id)}, ${jsArg(dateStr)})">
       <div class="modal-dot ${done?'':'off'}" style="${done?'background:'+h.color:''}"></div>
       <span style="font-size:16px">${h.icon}</span>
       <span style="color:${done?'var(--text)':'var(--text3)'};">${h.label}</span>

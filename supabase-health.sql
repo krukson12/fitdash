@@ -33,60 +33,101 @@ begin
   return nullif(regexp_replace(replace(v, ',', '.'), '[^0-9.]', '', 'g'), '')::numeric;
 end $$;
 
--- Called by the Shortcut: POST /rest/v1/rpc/fitdash_health
---   workout: {token, workout, start (ISO 8601), minutes, km}
---   steps:   {token, steps, day (ISO 8601)}
+-- Dates from Shortcuts should be ISO 8601; fall back instead of failing.
+create or replace function public.fitdash_ts(v text) returns timestamptz
+language plpgsql stable as $$
+begin
+  return v::timestamptz;
+exception when others then
+  return null;
+end $$;
+
+-- Called by the Shortcuts: POST /rest/v1/rpc/fitdash_health
+--   steps:   {token, steps, day}
+--   workout: {token, start, finish, workout, w_name, w_type, w_value, w_unit, minutes, km}
+-- Only cardio-type workouts are imported (strength sessions are logged by hand in the app).
 -- Records get t = 1, so anything edited or deleted in the app always wins,
 -- and re-sending the same workout is a no-op.
+drop function if exists public.fitdash_health(text, text, text, text, text, text, text);
+
 create or replace function public.fitdash_health(
   token   text,
   workout text default null,
   start   text default null,
+  finish  text default null,
   minutes text default null,
   km      text default null,
   steps   text default null,
-  day     text default null
+  day     text default null,
+  w_name  text default null,
+  w_type  text default null,
+  w_value text default null,
+  w_unit  text default null
 ) returns text
 language plpgsql security definer set search_path = public as $$
 declare
   uid   uuid;
+  ts0   timestamptz := fitdash_ts(start);
+  ts1   timestamptz := fitdash_ts(finish);
   dur   numeric := fitdash_num(minutes);
   dist  numeric := fitdash_num(km);
+  val   numeric := fitdash_num(w_value);
   n     numeric := fitdash_num(steps);
+  hint  text := concat_ws(' ', workout, w_name, w_type);
   label text;
   d     text;
 begin
   select t.user_id into uid from fitdash_tokens t where t.token = fitdash_health.token;
   if uid is null then raise exception 'invalid FitDash Health key' using errcode = '28000'; end if;
 
-  if start is not null and workout is not null then
-    if dur > 600 then dur := dur / 60; end if;        -- came in seconds
-    if dist > 1000 then dist := dist / 1000; end if;  -- came in metres
-    label := case
-      when workout ~* 'run'       then 'Running'
-      when workout ~* 'walk|hik'  then 'Walking'
-      when workout ~* 'cycl|bik'  then 'Cycling'
-      when workout ~* 'swim'      then 'Swimming'
-      when workout ~* 'row'       then 'Rowing'
-      else workout end;
-    d := to_char(left(start, 10)::date, 'DD/MM/YYYY');
-    insert into fitdash_records (user_id, coll, id, data, t)
-    values (uid, 'cardio', 'hk-' || regexp_replace(start, '\D', '', 'g'),
-            jsonb_build_object('type', label, 'dur', round(coalesce(dur, 0)), 'dist', round(coalesce(dist, 0), 2),
-                               'date', d, 'c', (extract(epoch from start::timestamptz) * 1000)::bigint, 'source', 'health'),
-            1)
-    on conflict do nothing;
-  end if;
-
   if n >= 10000 then
-    d := to_char(coalesce(left(day, 10)::date, (now() at time zone 'Europe/Warsaw')::date), 'DD/MM/YYYY');
+    d := to_char(coalesce(fitdash_ts(day) at time zone 'Europe/Warsaw', now() at time zone 'Europe/Warsaw')::date, 'DD/MM/YYYY');
+    if day ~ '^\d{4}-\d{2}-\d{2}' then d := to_char(left(day, 10)::date, 'DD/MM/YYYY'); end if;
     insert into fitdash_records (user_id, coll, id, data, t)
     values (uid, 'habits', d || '~steps', '{"v": true}', 1)
     on conflict do nothing;
   end if;
 
-  return 'ok';
+  if start is null then return 'ok'; end if;
+
+  if ts0 is null then
+    return format('error: could not read start date "%s" (workout "%s")', start, hint);
+  end if;
+
+  label := case
+    when hint ~* 'run|bieg'                         then 'Running'
+    when hint ~* 'walk|hik|ch[oó]d|spacer|w[eę]dr'  then 'Walking'
+    when hint ~* 'cycl|bik|rower|kolar'             then 'Cycling'
+    when hint ~* 'swim|p[lł]yw'                     then 'Swimming'
+    when hint ~* 'row|wios[lł]'                     then 'Rowing'
+    else null end;
+  if label is null then
+    return format('skipped (not cardio): "%s" value "%s" unit "%s"', hint, w_value, w_unit);
+  end if;
+
+  if ts1 is not null and ts1 > ts0 then
+    dur := extract(epoch from ts1 - ts0) / 60;
+  elsif dur > 600 then
+    dur := dur / 60;                                   -- came in seconds
+  end if;
+  if dist is null and val is not null then
+    if    w_unit ~* '^\s*(km|kilom)' then dist := val;
+    elsif w_unit ~* '^\s*mi(\s*$|le)' then dist := val * 1.609344;
+    elsif w_unit ~* '^\s*m(et|\s*$)' then dist := val / 1000;
+    end if;
+  end if;
+  if dist > 1000 then dist := dist / 1000; end if;     -- came in metres
+
+  d := to_char((case when start ~ '^\d{4}-\d{2}-\d{2}' then left(start, 10)::date else (ts0 at time zone 'Europe/Warsaw')::date end), 'DD/MM/YYYY');
+  insert into fitdash_records (user_id, coll, id, data, t)
+  values (uid, 'cardio', 'hk-' || to_char(ts0 at time zone 'UTC', 'YYYYMMDDHH24MISS'),
+          jsonb_build_object('type', label, 'dur', round(coalesce(dur, 0)), 'dist', round(coalesce(dist, 0), 2),
+                             'date', d, 'c', (extract(epoch from ts0) * 1000)::bigint, 'source', 'health'),
+          1)
+  on conflict do nothing;
+
+  return format('ok: %s, %s min, %s km (%s)', label, round(coalesce(dur, 0)), round(coalesce(dist, 0), 2), d);
 end $$;
 
-revoke all on function public.fitdash_health(text, text, text, text, text, text, text) from public;
-grant execute on function public.fitdash_health(text, text, text, text, text, text, text) to anon, authenticated;
+revoke all on function public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text) from public;
+grant execute on function public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text) to anon, authenticated;
