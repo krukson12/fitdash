@@ -547,7 +547,7 @@ async function signOut() {
   S = emptyState(); save();
   ACCESS_TOKEN = null; CURRENT_USER = null;
   ['fitdash_access_token','fitdash_refresh_token','fitdash_user'].forEach(k => localStorage.removeItem(k));
-  healthToken = null; healthOpen = false;
+  healthToken = null; healthOpen = false; healthLog = null;
   showAuthUI(); renderAll();
 }
 
@@ -1071,7 +1071,27 @@ function renderCardioLog() {
 }
 
 // ── APPLE HEALTH (via Shortcuts) ─────────────────────────
-let healthToken = null, healthOpen = false;
+let healthToken = null, healthOpen = false, healthLog = null;
+async function loadHealthLog() {
+  try { healthLog = await api('fitdash_health_log?select=at,result,payload&order=id.desc&limit=25'); }
+  catch(e) { healthLog = null; }
+}
+async function refreshHealthLog(btn) {
+  if (btn) btn.textContent = 'Refreshing…';
+  await loadHealthLog(); sync(); renderHealthCard();
+}
+function healthLogHtml() {
+  if (healthLog === null) return '<div class="empty">Import log unavailable.</div>';
+  if (!healthLog.length) return '<div class="empty">Nothing received from your iPhone yet.</div>';
+  return healthLog.map(l => {
+    const when = new Date(l.at).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const bad = /^(error|skipped)/.test(l.result || '');
+    const raw = Object.entries(l.payload || {}).map(([k, v]) => `${k}=${v}`).join(' · ');
+    return `<div class="log-entry"><div style="min-width:0"><div class="log-meta">${escHtml(when)}</div>
+      <div style="font-size:13px;color:${bad ? 'var(--red)' : 'var(--text)'};margin-top:2px">${escHtml(l.result || '')}</div>
+      <div style="font-size:10px;color:var(--text3);font-family:DM Mono,monospace;margin-top:2px;word-break:break-word">${escHtml(raw.slice(0, 260))}</div></div></div>`;
+  }).join('');
+}
 async function loadHealthToken(create) {
   let rows = await api('fitdash_tokens?select=token');
   if (!rows.length && create) rows = await api('fitdash_tokens', { method: 'POST', headers: { 'Prefer': 'return=representation' }, body: JSON.stringify({ user_id: getUserId() }) });
@@ -1080,7 +1100,7 @@ async function loadHealthToken(create) {
 async function openHealthSetup() {
   const body = document.getElementById('health-body');
   body.innerHTML = '<div class="empty">Loading…</div>';
-  try { await loadHealthToken(true); healthOpen = true; }
+  try { await loadHealthToken(true); await loadHealthLog(); healthOpen = true; }
   catch(e) { console.warn(e); body.innerHTML = '<div class="empty">Couldn\'t load your Health key — check the connection and try again.</div>'; return; }
   renderHealthCard();
 }
@@ -1114,6 +1134,8 @@ function renderHealthCard() {
     ${row('URL', url)}
     ${row('apikey', SB_KEY)}
     ${row('Key', healthToken)}
+    <div class="section-divider" style="display:flex;justify-content:space-between;align-items:center">Received from iPhone <button class="link-btn" style="padding:0" onclick="refreshHealthLog(this)">Refresh</button></div>
+    <div style="max-height:260px;overflow-y:auto;margin-bottom:6px">${healthLogHtml()}</div>
     <div class="section-divider">Shortcut 1 — workouts</div>
     <ol class="health-steps">
       <li>Shortcuts → <b>New Shortcut</b> → add <b>Find Health Samples</b>: Type <b>Workouts</b>, Start Date <b>is today</b>.</li>

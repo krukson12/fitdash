@@ -42,31 +42,32 @@ exception when others then
   return null;
 end $$;
 
--- Called by the Shortcuts: POST /rest/v1/rpc/fitdash_health
---   steps:   {token, steps, day}
---   workout: {token, start, finish, workout, w_name, w_type, w_value, w_unit, minutes, km}
--- Only cardio-type workouts are imported (strength sessions are logged by hand in the app).
--- Records get t = 1, so anything edited or deleted in the app always wins,
--- and re-sending the same workout is a no-op.
-drop function if exists public.fitdash_health(text, text, text, text, text, text, text);
+-- Log of what the Shortcuts sent and what happened, shown in the app's Health card.
+create table if not exists public.fitdash_health_log (
+  id      bigint generated always as identity primary key,
+  user_id uuid        not null references auth.users on delete cascade,
+  at      timestamptz not null default now(),
+  payload jsonb,
+  result  text
+);
+create index if not exists fitdash_health_log_user on public.fitdash_health_log (user_id, id desc);
+alter table public.fitdash_health_log enable row level security;
+drop policy if exists "own log" on public.fitdash_health_log;
+create policy "own log" on public.fitdash_health_log for select to authenticated using (user_id = auth.uid());
+grant select on public.fitdash_health_log to authenticated;
 
-create or replace function public.fitdash_health(
-  token   text,
-  workout text default null,
-  start   text default null,
-  finish  text default null,
-  minutes text default null,
-  km      text default null,
-  steps   text default null,
-  day     text default null,
-  w_name  text default null,
-  w_type  text default null,
-  w_value text default null,
-  w_unit  text default null
+drop function if exists public.fitdash_health(text, text, text, text, text, text, text);
+drop function if exists public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text);
+
+-- Does the import for one user. Only cardio-type workouts are imported (strength
+-- sessions are logged by hand in the app). Records get t = 1, so anything edited or
+-- deleted in the app always wins, and re-sending the same item is a no-op.
+create or replace function public.fitdash_health_apply(
+  uid uuid, workout text, start text, finish text, minutes text, km text,
+  steps text, day text, w_name text, w_type text, w_value text, w_unit text
 ) returns text
-language plpgsql security definer set search_path = public as $$
+language plpgsql set search_path = public as $$
 declare
-  uid   uuid;
   ts0   timestamptz := fitdash_ts(start);
   ts1   timestamptz := fitdash_ts(finish);
   dur   numeric := fitdash_num(minutes);
@@ -77,18 +78,20 @@ declare
   label text;
   d     text;
 begin
-  select t.user_id into uid from fitdash_tokens t where t.token = fitdash_health.token;
-  if uid is null then raise exception 'invalid FitDash Health key' using errcode = '28000'; end if;
-
-  if n >= 10000 then
+  if steps is not null then
+    n := coalesce(val, n);   -- the sample's Value property is cleaner than its text form
     d := to_char(coalesce(fitdash_ts(day) at time zone 'Europe/Warsaw', now() at time zone 'Europe/Warsaw')::date, 'DD/MM/YYYY');
     if day ~ '^\d{4}-\d{2}-\d{2}' then d := to_char(left(day, 10)::date, 'DD/MM/YYYY'); end if;
-    insert into fitdash_records (user_id, coll, id, data, t)
-    values (uid, 'habits', d || '~steps', '{"v": true}', 1)
-    on conflict do nothing;
+    if n >= 10000 then
+      insert into fitdash_records (user_id, coll, id, data, t)
+      values (uid, 'habits', d || '~steps', '{"v": true}', 1)
+      on conflict do nothing;
+      return format('ok: %s steps on %s, habit ticked', round(n), d);
+    end if;
+    return format('ok: %s steps on %s, under 10000', coalesce(round(n)::text, '?'), d);
   end if;
 
-  if start is null then return 'ok'; end if;
+  if start is null then return 'nothing to import'; end if;
 
   if ts0 is null then
     return format('error: could not read start date "%s" (workout "%s")', start, hint);
@@ -129,5 +132,51 @@ begin
   return format('ok: %s, %s min, %s km (%s)', label, round(coalesce(dur, 0)), round(coalesce(dist, 0), 2), d);
 end $$;
 
-revoke all on function public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text) from public;
-grant execute on function public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text) to anon, authenticated;
+-- Called by the Shortcuts: POST /rest/v1/rpc/fitdash_health
+--   steps:   {token, steps, w_value, day}
+--   workout: {token, start, finish, workout, w_name, w_type, w_value, w_unit, minutes, km}
+--   ping:    {token, ping}   (sent once at the end of a Shortcut run)
+create or replace function public.fitdash_health(
+  token   text,
+  workout text default null,
+  start   text default null,
+  finish  text default null,
+  minutes text default null,
+  km      text default null,
+  steps   text default null,
+  day     text default null,
+  w_name  text default null,
+  w_type  text default null,
+  w_value text default null,
+  w_unit  text default null,
+  ping    text default null
+) returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid;
+  res text;
+begin
+  select t.user_id into uid from fitdash_tokens t where t.token = fitdash_health.token;
+  if uid is null then raise exception 'invalid FitDash Health key' using errcode = '28000'; end if;
+
+  if ping is not null and start is null and steps is null then
+    res := 'run finished: ' || ping;
+  else
+    begin
+      res := fitdash_health_apply(uid, workout, start, finish, minutes, km, steps, day, w_name, w_type, w_value, w_unit);
+    exception when others then
+      res := 'error: ' || sqlerrm;
+    end;
+  end if;
+
+  insert into fitdash_health_log (user_id, payload, result)
+  values (uid, jsonb_strip_nulls(jsonb_build_object('workout', workout, 'start', start, 'finish', finish, 'minutes', minutes,
+          'km', km, 'steps', steps, 'day', day, 'w_name', w_name, 'w_type', w_type, 'w_value', w_value, 'w_unit', w_unit, 'ping', ping)), res);
+  delete from fitdash_health_log l where l.user_id = uid
+    and l.id not in (select id from fitdash_health_log where user_id = uid order by id desc limit 80);
+  return res;
+end $$;
+
+revoke all on function public.fitdash_health_apply(uuid, text, text, text, text, text, text, text, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text, text) from public;
+grant execute on function public.fitdash_health(text, text, text, text, text, text, text, text, text, text, text, text, text) to anon, authenticated;
