@@ -96,6 +96,9 @@ select option { background: var(--bg3); }
 .log-meta { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; margin-top: 2px; }
 .log-del { color: var(--text3); cursor: pointer; font-size: 18px; padding: 4px 0 4px 10px; }
 .log-del:active { color: var(--red); }
+.strava-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; background: rgba(252,76,2,0.14); color: #fc4c02; border-radius: 20px; margin-left: 6px; }
+.btn-strava { width: 100%; padding: 12px; background: #fc4c02; color: #fff; border: none; border-radius: var(--radius-sm); font-family: 'DM Sans', sans-serif; font-size: 15px; font-weight: 600; cursor: pointer; }
+.btn-strava:active { transform: scale(0.98); }
 .health-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; background: rgba(255,95,87,0.12); color: var(--red); border-radius: 20px; margin-left: 6px; }
 .health-steps { margin: 4px 0 0 18px; font-size: 13px; color: var(--text2); line-height: 1.55; }
 .health-steps li { margin-bottom: 6px; }
@@ -354,6 +357,13 @@ select option { background: var(--bg3); }
         </div>
         <div class="card">
           <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 5 13 13 16 9 21 17"/></svg>
+            Strava
+          </div>
+          <div id="strava-body"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>
             Apple Health auto-import
           </div>
@@ -547,7 +557,7 @@ async function signOut() {
   S = emptyState(); save();
   ACCESS_TOKEN = null; CURRENT_USER = null;
   ['fitdash_access_token','fitdash_refresh_token','fitdash_user'].forEach(k => localStorage.removeItem(k));
-  healthToken = null; healthOpen = false; healthLog = null;
+  healthToken = null; healthOpen = false; healthLog = null; strava = null; stravaError = '';
   showAuthUI(); renderAll();
 }
 
@@ -734,7 +744,7 @@ async function sync() {
   if (syncAgain) { syncAgain = false; sync(); }
 }
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { initDateTime(); renderAll(); sync(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { initDateTime(); renderAll(); sync(); stravaSync(); } });
 window.addEventListener('online', () => sync());
 window.addEventListener('offline', () => setSyncState('offline'));
 setInterval(() => { if (!document.hidden) sync(); }, 30000);
@@ -773,7 +783,7 @@ function toggleHabit(id, date = todayStr()) {
 function toggleHabitInModal(id, date) { toggleHabit(id, date); openDayModal(date); }
 
 function renderAll() {
-  renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar(); renderExercisePicker(); renderHealthCard();
+  renderDashboard(); renderTodos(); renderExLog(); renderCardioLog(); renderBWChart(); renderCalendar(); renderExercisePicker(); renderHealthCard(); renderStravaCard();
 }
 
 function switchView(v, btn) {
@@ -1065,9 +1075,84 @@ function renderCardioLog() {
   card.style.display = 'block';
   el.innerHTML = S.cardio.slice(0, 30).map(c => `
     <div class="log-entry">
-      <div><div class="log-name">${escHtml(c.type)}${c.source === 'health' ? '<span class="health-badge">❤ Health</span>' : ''}</div><div class="log-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''} · ${c.date}</div></div>
+      <div><div class="log-name">${escHtml(c.type)}${sourceBadge(c)}</div><div class="log-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''} · ${c.date}</div></div>
       <span class="log-del" onclick="deleteCardio(${jsArg(c.id)})">×</span>
     </div>`).join('');
+}
+
+function sourceBadge(c) {
+  if (c.source === 'health') return '<span class="health-badge">❤ Health</span>';
+  if (c.source === 'strava') return '<span class="strava-badge">Strava</span>';
+  return '';
+}
+
+// ── STRAVA ───────────────────────────────────────────────
+// Tokens and the client secret live in the database; the app only calls RPCs.
+let strava = null, stravaBusy = '', stravaError = '';
+const STRAVA_SYNC_KEY = 'fitdash_strava_synced_at';
+async function loadStrava() {
+  try { strava = await api('rpc/fitdash_strava_status', { method: 'POST', body: '{}' }); }
+  catch(e) { strava = null; }
+  renderStravaCard();
+}
+function connectStrava() {
+  if (!strava?.client_id) return;
+  const redirect = window.location.href.split(/[?#]/)[0];
+  window.location.href = 'https://www.strava.com/oauth/authorize?client_id=' + encodeURIComponent(strava.client_id) +
+    '&redirect_uri=' + encodeURIComponent(redirect) + '&response_type=code&approval_prompt=auto&scope=activity:read_all&state=strava';
+}
+// Strava sends the user back with ?state=strava&code=… (or &error=access_denied).
+async function handleStravaRedirect() {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get('state') !== 'strava') return;
+  window.history.replaceState({}, '', window.location.pathname);
+  if (!q.get('code') || !getUserId()) { stravaError = q.get('error') ? 'Strava access was not granted.' : 'Sign in to FitDash first, then connect Strava.'; return; }
+  try {
+    await api('rpc/fitdash_strava_connect', { method: 'POST', body: JSON.stringify({ code: q.get('code') }) });
+    localStorage.removeItem(STRAVA_SYNC_KEY);
+  } catch(e) { console.warn(e); stravaError = 'Couldn\'t connect Strava. Try again.'; }
+}
+// Ask the database to fetch new activities, then pull them like any other change.
+async function stravaSync(force) {
+  if (!getUserId() || !navigator.onLine || stravaBusy) return;
+  if (!strava) await loadStrava();
+  if (!strava?.connected) return;
+  const last = parseInt(localStorage.getItem(STRAVA_SYNC_KEY) || '0');
+  if (!force && Date.now() - last < 10 * 60 * 1000) return;
+  stravaBusy = 'Checking Strava…'; stravaError = ''; renderStravaCard();
+  try {
+    const r = await api('rpc/fitdash_strava_sync', { method: 'POST', body: '{}' });
+    if (r?.error) stravaError = r.error.replace(/^error: /, '');
+    localStorage.setItem(STRAVA_SYNC_KEY, String(Date.now()));
+    if (r?.added) await sync();
+  } catch(e) { console.warn(e); stravaError = 'Couldn\'t reach Strava. Will try again later.'; }
+  stravaBusy = '';
+  await loadStrava();
+}
+async function disconnectStrava() {
+  if (!confirm('Disconnect Strava?\n\nWorkouts already imported stay in FitDash.')) return;
+  try { await api('rpc/fitdash_strava_disconnect', { method: 'POST', body: '{}' }); } catch(e) {}
+  localStorage.removeItem(STRAVA_SYNC_KEY);
+  await loadStrava();
+}
+function renderStravaCard() {
+  const body = document.getElementById('strava-body');
+  if (!body) return;
+  const note = t => `<div style="font-size:13px;color:var(--text2);line-height:1.5">${t}</div>`;
+  const err = stravaError ? `<div style="font-size:12px;color:var(--red);margin-top:8px">${escHtml(stravaError)}</div>` : '';
+  if (!getUserId()) { body.innerHTML = note('Sign in (Dashboard, top right) to import runs, walks and rides from Strava.'); return; }
+  if (!strava) { body.innerHTML = note('Strava import isn\'t available right now.') + err; return; }
+  if (!strava.client_id) { body.innerHTML = note('Strava import hasn\'t been set up for this FitDash yet.'); return; }
+  if (!strava.connected) {
+    body.innerHTML = note('Runs, walks, hikes, rides, swims and rows you record with Strava (or your Apple Watch, via Strava) are added to Cardio automatically.') +
+      `<button class="btn-strava" style="margin-top:10px" onclick="connectStrava()">Connect with Strava</button>` + err;
+    return;
+  }
+  const when = strava.last_sync ? new Date(strava.last_sync).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'never';
+  body.innerHTML = `<div style="font-size:14px;color:var(--text)">Connected${strava.athlete ? ' as ' + escHtml(strava.athlete) : ''}</div>
+    <div class="log-meta" style="margin-top:4px">${stravaBusy ? escHtml(stravaBusy) : 'Last check ' + escHtml(when) + (strava.last_result ? ' · ' + escHtml(strava.last_result.replace(/^ok: /, '')) : '')}</div>${err}
+    <div style="display:flex;gap:16px;margin-top:4px"><button class="link-btn" onclick="stravaSync(true)">Check now</button><button class="link-btn" onclick="disconnectStrava()">Disconnect</button></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Powered by Strava</div>`;
 }
 
 // ── APPLE HEALTH (via Shortcuts) ─────────────────────────
@@ -1356,7 +1441,7 @@ function openDayModal(dateStr) {
   if (exercises.length || cardios.length) {
     body += '<div class="modal-section-title">Gym session</div>';
     exercises.forEach(e => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div><div class="modal-ex-meta">${fmtSetsData(e)}${e.notes ? '<br style="margin-top:2px"><span style="font-style:italic;color:var(--text3)">"'+escHtml(e.notes)+'"</span>' : ''}</div></div>`; });
-    cardios.forEach(c => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(c.type)}${c.source === 'health' ? '<span class="health-badge">❤ Health</span>' : ''}</div><div class="modal-ex-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''}</div></div>`; });
+    cardios.forEach(c => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(c.type)}${sourceBadge(c)}</div><div class="modal-ex-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''}</div></div>`; });
   }
   if (bwEntry) body += `<div class="modal-section-title">Body weight</div><div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span></div>`;
   if (!habits.length && !exercises.length && !cardios.length && !bwEntry) body += '<div class="empty" style="padding:30px 0">No activity logged</div>';
@@ -1493,7 +1578,14 @@ showAuthUI();
     else if (!token) await tryRefreshSession();
   }
   showAuthUI();
-  if (getUserId()) { adoptOwner(getUserId()); sync(); }
+  if (getUserId()) {
+    adoptOwner(getUserId());
+    await handleStravaRedirect();
+    sync();
+    loadStrava().then(() => stravaSync());
+  } else if (new URLSearchParams(window.location.search).get('state') === 'strava') {
+    await handleStravaRedirect(); renderStravaCard();
+  }
 })();
 </script>
 </body>
