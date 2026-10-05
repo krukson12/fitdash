@@ -355,7 +355,7 @@ select option { background: var(--bg3); }
           <div class="section-divider">History</div>
           <div id="cardio-log"></div>
         </div>
-        <div class="card">
+        <div class="card" id="strava-card" style="display:none">
           <div class="card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 17 9 5 13 13 16 9 21 17"/></svg>
             Strava
@@ -1138,6 +1138,8 @@ async function disconnectStrava() {
 function renderStravaCard() {
   const body = document.getElementById('strava-body');
   if (!body) return;
+  // hidden until a Strava API app is configured in the database (needs a paid Strava plan)
+  document.getElementById('strava-card').style.display = getUserId() && strava?.client_id ? 'block' : 'none';
   const note = t => `<div style="font-size:13px;color:var(--text2);line-height:1.5">${t}</div>`;
   const err = stravaError ? `<div style="font-size:12px;color:var(--red);margin-top:8px">${escHtml(stravaError)}</div>` : '';
   if (!getUserId()) { body.innerHTML = note('Sign in (Dashboard, top right) to import runs, walks and rides from Strava.'); return; }
@@ -1205,11 +1207,11 @@ function renderHealthCard() {
   const body = document.getElementById('health-body');
   if (!body) return;
   if (!getUserId()) {
-    body.innerHTML = '<div style="font-size:13px;color:var(--text2);line-height:1.5">Sign in (Dashboard, top right) to have runs, walks and steps from Apple Health added automatically.</div>';
+    body.innerHTML = '<div style="font-size:13px;color:var(--text2);line-height:1.5">Sign in (Dashboard, top right) to have your steps from Apple Health ticked automatically.</div>';
     return;
   }
   if (!healthOpen || !healthToken) {
-    body.innerHTML = `<div style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:10px">An iPhone Shortcut can send your workouts and daily steps from Apple Health to FitDash automatically.</div>
+    body.innerHTML = `<div style="font-size:13px;color:var(--text2);line-height:1.5;margin-bottom:10px">An iPhone Shortcut can send your daily steps from Apple Health to FitDash and tick the steps habit automatically.</div>
       <button class="btn-primary" onclick="openHealthSetup()">Set up</button>`;
     return;
   }
@@ -1221,22 +1223,13 @@ function renderHealthCard() {
     ${row('Key', healthToken)}
     <div class="section-divider" style="display:flex;justify-content:space-between;align-items:center">Received from iPhone <button class="link-btn" style="padding:0" onclick="refreshHealthLog(this)">Refresh</button></div>
     <div style="max-height:260px;overflow-y:auto;margin-bottom:6px">${healthLogHtml()}</div>
-    <div class="section-divider">Shortcut 1 — workouts</div>
+    <div class="section-divider">Steps Shortcut</div>
     <ol class="health-steps">
-      <li>Shortcuts → <b>New Shortcut</b> → add <b>Find Health Samples</b>: Type <b>Workouts</b>, Start Date <b>is today</b>.</li>
-      <li><b>Repeat with Each</b> item, and inside it:</li>
-      <li>Two <b>Format Date</b> actions → Repeat Item's <b>Start Date</b> and <b>End Date</b>, format <b>ISO 8601</b>, include time.</li>
-      <li><b>Get Contents of URL</b> → the URL above. Method <b>POST</b>. Header <b>apikey</b> = the apikey above. Request Body <b>JSON</b>:<br>
-        <b>token</b> = your Key · <b>workout</b> = Repeat Item · <b>start</b> / <b>finish</b> = the two Formatted Dates · <b>w_value</b> = Repeat Item's Value · <b>w_unit</b> = Repeat Item's Unit. Only cardio workouts (run, walk, hike, cycle, swim, row) are added.</li>
+      <li>Shortcuts → <b>New Shortcut</b> → <b>Find Health Samples</b>: Type <b>Steps</b>, Start Date <b>is in the last 7 days</b>, Group by <b>Day</b>.</li>
+      <li><b>Repeat with Each</b> item, and inside it: <b>Format Date</b> → Repeat Item's <b>Start Date</b>, <b>ISO 8601</b>, include time.</li>
+      <li>Still inside: <b>Get Contents of URL</b> → the URL above. Method <b>POST</b>. Header <b>apikey</b> = the apikey above. Request Body <b>JSON</b>: <b>token</b> = your Key · <b>steps</b> = Repeat Item · <b>day</b> = Formatted Date.</li>
     </ol>
-    <div class="section-divider">Shortcut 2 — steps (optional)</div>
-    <ol class="health-steps">
-      <li><b>Find Health Samples</b>: Type <b>Steps</b>, Start Date <b>is today</b> → <b>Calculate Statistics</b>: <b>Sum</b>.</li>
-      <li><b>Format Date</b> → Current Date, <b>ISO 8601</b>.</li>
-      <li><b>Get Contents of URL</b> (same URL, POST, apikey header), JSON: <b>token</b> = Key · <b>steps</b> = Sum · <b>day</b> = Formatted Date. 10,000+ ticks the steps habit.</li>
-    </ol>
-    <div class="section-divider">Make it automatic</div>
-    <div style="font-size:13px;color:var(--text2);line-height:1.55">Shortcuts → <b style="color:var(--text);font-weight:500">Automation</b> → <b style="color:var(--text);font-weight:500">Time of Day</b> (e.g. 21:00, daily) → run both shortcuts, <b style="color:var(--text);font-weight:500">Run Immediately</b>. With an Apple Watch, also add <b style="color:var(--text);font-weight:500">Apple Watch Workout → Ends</b> to get workouts right away. Sending the same workout twice is safe, and deleting an import here keeps it deleted.</div>
+    <div style="font-size:13px;color:var(--text2);line-height:1.55;margin-top:8px">Days with 10,000+ steps get the steps habit ticked. Run it from a daily <b style="color:var(--text);font-weight:500">Automation</b> set to <b style="color:var(--text);font-weight:500">Run Immediately</b>; it resends the last 7 days, so a missed day fills in on the next run. Workouts can't be imported this way — iOS Shortcuts can't read them.</div>
     <button class="link-btn" onclick="resetHealthKey()">Reset key</button>`;
 }
 
