@@ -254,9 +254,12 @@ select option { background: var(--bg3); }
 
     <!-- HABITS -->
     <div class="view" id="view-todos">
-      <div class="page-header">
-        <div class="page-title">Daily habits</div>
-        <div class="page-sub" id="todo-count-label"></div>
+      <div class="page-header with-auth">
+        <div>
+          <div class="page-title">Daily habits</div>
+          <div class="page-sub" id="todo-count-label"></div>
+        </div>
+        <button class="auth-pill" id="habit-edit-btn" onclick="toggleHabitEdit()" style="padding:7px 14px;font-size:12px;font-weight:500;color:var(--text2)">Edit</button>
       </div>
       <div class="card" id="habits-card">
         <div id="habit-list"></div>
@@ -403,14 +406,7 @@ select option { background: var(--bg3); }
           <div class="cal-wd">Th</div><div class="cal-wd">Fr</div><div class="cal-wd">Sa</div><div class="cal-wd">Su</div>
         </div>
         <div class="cal-grid" id="cal-grid"></div>
-        <div class="cal-legend">
-          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-steps)"></div>10k steps</div>
-          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-gym)"></div>Gym session</div>
-          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-situps)"></div>Sit-ups</div>
-          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-pushups)"></div>Push-ups</div>
-          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-pullups)"></div>Pull-ups</div>
-          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:var(--c-reading)"></div>Reading</div>
-        </div>
+        <div class="cal-legend" id="cal-legend"></div>
       </div>
     </div>
 
@@ -586,8 +582,8 @@ function setSyncState(state) {
 // Items carry id (string), c (created ms, for ordering) and t (last edit ms, newest wins).
 // Deletes leave a tombstone in S.tomb; S.dirty lists records still to push.
 const KEY = 'fitdash_v2';
-const COLLS = ['exercises', 'cardio', 'bodyweights', 'todos'];
-function emptyState() { return { exercises: [], cardio: [], bodyweights: [], todos: [], habits: {}, tomb: {}, dirty: {}, owner: null, lastPull: null, importedOld: false }; }
+const COLLS = ['exercises', 'cardio', 'bodyweights', 'todos', 'habitdefs'];
+function emptyState() { return { exercises: [], cardio: [], bodyweights: [], todos: [], habitdefs: [], habits: {}, tomb: {}, dirty: {}, owner: null, lastPull: null, importedOld: false }; }
 let S = emptyState();
 function load() { try { const d = localStorage.getItem(KEY); if (d) S = { ...emptyState(), ...JSON.parse(d) }; } catch(e) {} }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
@@ -602,6 +598,7 @@ function sortAll() {
   const byDateThenCreated = (a, b) => dateKey(b.date).localeCompare(dateKey(a.date)) || (b.c || 0) - (a.c || 0);
   S.exercises.sort(byDateThenCreated); S.cardio.sort(byDateThenCreated); S.bodyweights.sort(byDateThenCreated);
   S.todos.sort((a, b) => (b.c || 0) - (a.c || 0));
+  S.habitdefs.sort((a, b) => (a.c || 0) - (b.c || 0));
 }
 function commit() { sortAll(); save(); renderAll(); scheduleSync(); }
 
@@ -749,15 +746,31 @@ window.addEventListener('online', () => sync());
 window.addEventListener('offline', () => setSyncState('offline'));
 setInterval(() => { if (!document.hidden) sync(); }, 30000);
 
-const HABITS = [
-  { id: 'steps',   label: '10,000 steps', icon: '👟', color: 'var(--c-steps)'   },
-  { id: 'situps',  label: 'Sit-ups',      icon: '🔥', color: 'var(--c-situps)'  },
-  { id: 'pushups', label: 'Push-ups',     icon: '💪', color: 'var(--c-pushups)' },
-  { id: 'pullups', label: 'Pull-ups',     icon: '🏋️', color: 'var(--c-pullups)' },
-  { id: 'reading', label: 'Book reading', icon: '📖', color: 'var(--c-reading)' },
+// Built-in habits. S.habitdefs holds the user's own habits plus any edits to
+// these (same id), so renames, colours and hiding sync like everything else.
+const DEFAULT_HABITS = [
+  { id: 'steps',   label: '10,000 steps', icon: '👟', color: '#22c55e' },
+  { id: 'situps',  label: 'Sit-ups',      icon: '🔥', color: '#f97316' },
+  { id: 'pushups', label: 'Push-ups',     icon: '💪', color: '#a78bfa' },
+  { id: 'pullups', label: 'Pull-ups',     icon: '🏋️', color: '#38bdf8' },
+  { id: 'reading', label: 'Book reading', icon: '📖', color: '#fbbf24' },
 ];
+const HABIT_PALETTE = ['#22c55e', '#14b8a6', '#38bdf8', '#a78bfa', '#ec4899', '#ef4444', '#f97316', '#fbbf24', '#c8f135', '#94a3b8'];
+function safeColor(c) { return /^#[0-9a-f]{3,8}$/i.test(c || '') ? c : '#94a3b8'; }
+function allHabits() {
+  const edits = Object.fromEntries(S.habitdefs.map(d => [d.id, d]));
+  const builtIn = DEFAULT_HABITS.map(h => ({ ...h, ...(edits[h.id] || {}), builtIn: true }));
+  const own = S.habitdefs.filter(d => !DEFAULT_HABITS.some(h => h.id === d.id));
+  return [...builtIn, ...own].map(h => ({ ...h, label: h.label || 'Habit', icon: h.icon || '', color: safeColor(h.color) }));
+}
+function habitList() { return allHabits().filter(h => !h.hidden); }
+function habitIcon(h, size) {
+  return h.icon
+    ? `<span style="font-size:${size}px;flex-shrink:0;width:${size + 4}px;text-align:center">${escHtml(h.icon)}</span>`
+    : `<span style="width:${size + 4}px;flex-shrink:0;display:flex;justify-content:center"><span style="width:${size - 4}px;height:${size - 4}px;border-radius:50%;background:${h.color}"></span></span>`;
+}
 
-function getHabitsDoneFor(dateStr) { const day = S.habits[dateStr] || {}; return HABITS.map(h => h.id).filter(id => day[id]?.v); }
+function getHabitsDoneFor(dateStr) { const day = S.habits[dateStr] || {}; return habitList().map(h => h.id).filter(id => day[id]?.v); }
 function todayStr() { return fmtDate(new Date()); }
 
 function getHabitStreak(habitId) {
@@ -766,10 +779,10 @@ function getHabitStreak(habitId) {
   let d = new Date(today);
   d.setDate(d.getDate() - 1);
   while (streak < 366) {
-    if (getHabitsDoneFor(fmtDate(d)).includes(habitId)) { streak++; d.setDate(d.getDate() - 1); }
+    if (S.habits[fmtDate(d)]?.[habitId]?.v) { streak++; d.setDate(d.getDate() - 1); }
     else break;
   }
-  if (getHabitsDoneFor(todayStr()).includes(habitId)) streak++;
+  if (S.habits[todayStr()]?.[habitId]?.v) streak++;
   return streak;
 }
 
@@ -832,25 +845,85 @@ function toggleTodo(id) {
 
 function deleteTodo(id) { removeItem('todos', id); commit(); }
 
+// ── HABIT EDITOR ─────────────────────────────────────────
+let habitEdit = false, habitDraft = null;
+function toggleHabitEdit() { habitEdit = !habitEdit; renderTodos(); }
+function openHabitEditor(id) {
+  const h = id ? allHabits().find(x => x.id === id) : null;
+  habitDraft = { id, color: h ? h.color : HABIT_PALETTE[habitList().length % HABIT_PALETTE.length] };
+  document.getElementById('modal-date').textContent = h ? 'Edit habit' : 'New habit';
+  document.getElementById('modal-sub').textContent = '';
+  document.getElementById('modal-body').innerHTML = `
+    <div class="field-group"><label class="field-label">Name</label>
+      <input id="hab-name" maxlength="40" placeholder="e.g. Stretching" value="${h ? escHtml(h.label) : ''}" onkeydown="if(event.key==='Enter')saveHabit()"></div>
+    <div class="field-group"><label class="field-label">Emoji (optional)</label>
+      <input id="hab-icon" maxlength="8" placeholder="🧘" value="${h ? escHtml(h.icon) : ''}" style="width:90px;text-align:center"></div>
+    <div class="field-group"><label class="field-label">Colour</label>
+      <div id="hab-palette" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px"></div></div>
+    <button class="btn-primary" onclick="saveHabit()" style="margin-top:8px">${h ? 'Save' : 'Add habit'}</button>
+    ${h ? `<button class="link-btn" style="color:var(--red);margin-top:10px" onclick="setHabitHidden(${jsArg(id)}, true)">Remove this habit</button>` : ''}`;
+  renderHabitPalette();
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function renderHabitPalette() {
+  const colors = HABIT_PALETTE.includes(habitDraft.color) ? HABIT_PALETTE : [habitDraft.color, ...HABIT_PALETTE];
+  document.getElementById('hab-palette').innerHTML = colors.map(c =>
+    `<button onclick="habitDraft.color='${c}';renderHabitPalette()" aria-label="Colour ${c}" style="width:34px;height:34px;border-radius:50%;background:${c};cursor:pointer;border:3px solid ${c === habitDraft.color ? 'var(--text)' : 'transparent'};outline:none"></button>`).join('');
+}
+// Returns the stored record for a habit, creating the override row for a built-in one.
+function habitDef(id) {
+  return S.habitdefs.find(d => d.id === id) || addItem('habitdefs', { id, ...(DEFAULT_HABITS.find(h => h.id === id) || {}) });
+}
+function saveHabit() {
+  const label = document.getElementById('hab-name').value.trim();
+  if (!label) { shake('hab-name'); return; }
+  const fields = { label, icon: document.getElementById('hab-icon').value.trim(), color: safeColor(habitDraft.color) };
+  if (habitDraft.id) { const d = habitDef(habitDraft.id); Object.assign(d, fields); touchItem('habitdefs', d); }
+  else addItem('habitdefs', { id: 'h' + newId(), ...fields });
+  closeModal(); commit();
+}
+// Removing only hides: the habit's history stays and it can be restored from Edit.
+function setHabitHidden(id, hidden) {
+  const d = habitDef(id); d.hidden = hidden; touchItem('habitdefs', d);
+  closeModal(); commit();
+}
+
 function renderTodos() {
   const done = getHabitsDoneFor(todayStr());
   const label = document.getElementById('todo-count-label');
-  if (label) label.textContent = `${done.length} of ${HABITS.length} habits done today`;
+  const list = habitList();
+  if (label) label.textContent = habitEdit ? 'Tap a habit to change it' : `${done.length} of ${list.length} habits done today`;
+  const editBtn = document.getElementById('habit-edit-btn');
+  if (editBtn) { editBtn.textContent = habitEdit ? 'Done' : 'Edit'; editBtn.style.color = habitEdit ? 'var(--accent)' : 'var(--text2)'; }
 
   const hel = document.getElementById('habit-list');
-  if (hel) {
-    hel.innerHTML = HABITS.map(h => {
+  if (hel && habitEdit) {
+    const hidden = allHabits().filter(h => h.hidden);
+    hel.innerHTML = list.map(h => `<div class="todo-item" onclick="openHabitEditor(${jsArg(h.id)})" style="cursor:pointer">
+        <span style="width:14px;height:14px;border-radius:50%;background:${h.color};flex-shrink:0"></span>
+        ${h.icon ? habitIcon(h, 18) : ''}
+        <span class="todo-text">${escHtml(h.label)}</span>
+        <span style="color:var(--text3);font-size:18px">›</span>
+      </div>`).join('') +
+      `<div class="todo-item" onclick="openHabitEditor(null)" style="cursor:pointer;color:var(--accent);font-size:14px;font-weight:500">+ Add habit</div>` +
+      hidden.map(h => `<div class="todo-item">
+        ${habitIcon(h, 18)}
+        <span class="todo-text done">${escHtml(h.label)}</span>
+        <button class="link-btn" style="padding:0" onclick="setHabitHidden(${jsArg(h.id)}, false)">Restore</button>
+      </div>`).join('');
+  } else if (hel) {
+    hel.innerHTML = list.length ? list.map(h => {
       const isDone = done.includes(h.id);
       const streak = getHabitStreak(h.id);
-      return `<div class="todo-item" onclick="toggleHabit('${h.id}')" style="cursor:pointer">
-        <div class="todo-check ${isDone?'done':''}" role="checkbox" aria-checked="${isDone}">
+      return `<div class="todo-item" onclick="toggleHabit(${jsArg(h.id)})" style="cursor:pointer">
+        <div class="todo-check ${isDone?'done':''}" role="checkbox" aria-checked="${isDone}" style="${isDone ? `background:${h.color};border-color:${h.color}` : ''}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
-        <span style="font-size:18px;flex-shrink:0">${h.icon}</span>
-        <span class="todo-text ${isDone?'done':''}">${h.label}</span>
+        ${habitIcon(h, 18)}
+        <span class="todo-text ${isDone?'done':''}">${escHtml(h.label)}</span>
         ${streak >= 2 ? `<span class="streak">🔥 ${streak}</span>` : ''}
       </div>`;
-    }).join('');
+    }).join('') : '<div class="empty">No habits yet — tap Edit to add one.</div>';
   }
 
   const el = document.getElementById('todo-list');
@@ -1279,17 +1352,11 @@ function renderWeeklySummary() {
   const weeklyPRs = S.exercises.filter(e => e.pr && days.some(d => d.date === e.date)).length;
   const avgHabits = (days.reduce((sum, d) => sum + getHabitsDoneFor(d.date).length, 0) / 7).toFixed(1);
 
-  const HABIT_COLORS = { steps:'var(--c-steps)', situps:'var(--c-situps)', pushups:'var(--c-pushups)', pullups:'var(--c-pullups)', reading:'var(--c-reading)' };
-
-  const gridRows = HABITS.map(h => {
-    const dots = days.map(d => {
-      const done = getHabitsDoneFor(d.date).includes(h.id);
-      return `<div class="week-day-col"><div class="week-habit-dot" style="${done?'background:'+h.color:''}"></div></div>`;
-    }).join('');
+  const gridRows = habitList().map(h => {
     return `<div style="display:flex;gap:3px;align-items:center;margin-bottom:5px">
-      <div style="width:18px;text-align:center;font-size:14px;flex-shrink:0">${h.icon}</div>
+      ${habitIcon(h, 14)}
       <div style="display:flex;gap:3px;flex:1">${days.map(d => {
-        const done = getHabitsDoneFor(d.date).includes(h.id);
+        const done = !!S.habits[d.date]?.[h.id]?.v;
         return `<div style="flex:1;aspect-ratio:1;border-radius:50%;background:${done?h.color:'var(--bg3)'}"></div>`;
       }).join('')}</div>
     </div>`;
@@ -1298,7 +1365,7 @@ function renderWeeklySummary() {
   const dayLabels = days.map(d => `<div style="flex:1;text-align:center;font-size:9px;color:var(--text3);font-family:DM Mono,monospace;text-transform:uppercase">${d.label}</div>`).join('');
 
   el.innerHTML = `
-    <div style="display:flex;gap:3px;margin-bottom:4px;padding-left:22px">${dayLabels}</div>
+    <div style="display:flex;gap:3px;margin-bottom:4px;padding-left:21px">${dayLabels}</div>
     ${gridRows}
     <div class="week-mini-stats">
       <div class="week-stat"><div class="week-stat-val">${gymDays}</div><div class="week-stat-label">Gym days</div></div>
@@ -1312,7 +1379,8 @@ function renderDashboard() {
   const todayEx = S.exercises.filter(e => e.date === todayStr()).length;
   const bw = S.bodyweights[0];
   const prs = S.exercises.filter(e => e.pr).length;
-  const allDone = habitsDone.length === HABITS.length;
+  const habitCount = habitList().length;
+  const allDone = habitCount > 0 && habitsDone.length === habitCount;
 
   let bwTrend7 = null;
   if (bw) {
@@ -1324,7 +1392,7 @@ function renderDashboard() {
   document.getElementById('dash-stats').innerHTML = `
     <div class="stat-card ${allDone ? 'accent' : ''}">
       <div class="stat-label">Habits done</div>
-      <div class="stat-val">${habitsDone.length}<span class="stat-unit"> / ${HABITS.length}</span></div>
+      <div class="stat-val">${habitsDone.length}<span class="stat-unit"> / ${habitCount}</span></div>
     </div>
     <div class="stat-card ${todayEx > 0 ? 'blue' : ''}">
       <div class="stat-label">Exercises today</div>
@@ -1343,15 +1411,15 @@ function renderDashboard() {
   renderWeeklySummary();
 
   const tl = document.getElementById('dash-todo-list');
-  tl.innerHTML = HABITS.map(h => {
+  tl.innerHTML = habitList().map(h => {
     const isDone = habitsDone.includes(h.id);
     const streak = getHabitStreak(h.id);
-    return `<div class="todo-item" onclick="toggleHabit('${h.id}')" style="cursor:pointer">
-      <div class="todo-check ${isDone?'done':''}" role="checkbox">
+    return `<div class="todo-item" onclick="toggleHabit(${jsArg(h.id)})" style="cursor:pointer">
+      <div class="todo-check ${isDone?'done':''}" role="checkbox" style="${isDone ? `background:${h.color};border-color:${h.color}` : ''}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
-      <span style="font-size:16px;flex-shrink:0">${h.icon}</span>
-      <span class="todo-text ${isDone?'done':''}">${h.label}</span>
+      ${habitIcon(h, 16)}
+      <span class="todo-text ${isDone?'done':''}">${escHtml(h.label)}</span>
       ${streak >= 2 ? `<span class="streak">🔥 ${streak}</span>` : ''}
     </div>`;
   }).join('');
@@ -1378,9 +1446,8 @@ function calNext() {
 
 function getDotsForDate(dateStr) {
   const dots = [];
-  const habits = getHabitsDoneFor(dateStr);
-  const META = { steps:'var(--c-steps)', situps:'var(--c-situps)', pushups:'var(--c-pushups)', pullups:'var(--c-pullups)', reading:'var(--c-reading)' };
-  habits.forEach(id => { if (META[id]) dots.push(META[id]); });
+  const day = S.habits[dateStr] || {};
+  habitList().forEach(h => { if (day[h.id]?.v) dots.push(h.color); });
   if (S.exercises.some(e => e.date === dateStr) || S.cardio.some(c => c.date === dateStr)) dots.push('var(--c-gym)');
   return dots;
 }
@@ -1409,6 +1476,8 @@ function renderCalendar() {
     </div>`;
   }
   grid.innerHTML = html;
+  document.getElementById('cal-legend').innerHTML = [...habitList().map(h => [h.color, h.label]), ['var(--c-gym)', 'Gym session']]
+    .map(([c, l]) => `<div class="cal-legend-item"><div class="cal-legend-dot" style="background:${c}"></div>${escHtml(l)}</div>`).join('');
 }
 
 function openDayModal(dateStr) {
@@ -1422,12 +1491,12 @@ function openDayModal(dateStr) {
   const bwEntry = S.bodyweights.find(b => b.date === dateStr);
   document.getElementById('modal-sub').textContent = dateStr === todayStr() ? 'Today' : '';
   let body = '<div class="modal-section-title">Habits · tap to change</div>';
-  body += HABITS.map(h => {
+  body += habitList().map(h => {
     const done = habits.includes(h.id);
     return `<div class="modal-habit-row" style="cursor:pointer" onclick="toggleHabitInModal(${jsArg(h.id)}, ${jsArg(dateStr)})">
       <div class="modal-dot ${done?'':'off'}" style="${done?'background:'+h.color:''}"></div>
-      <span style="font-size:16px">${h.icon}</span>
-      <span style="color:${done?'var(--text)':'var(--text3)'};">${h.label}</span>
+      ${habitIcon(h, 16)}
+      <span style="color:${done?'var(--text)':'var(--text3)'};">${escHtml(h.label)}</span>
       ${done ? '<span style="margin-left:auto;font-size:11px;color:var(--text2)">✓</span>' : ''}
     </div>`;
   }).join('');
