@@ -324,7 +324,7 @@ select option { background: var(--bg3); }
           <button class="add-set-btn" onclick="addSet()">+ Add set</button>
           <div class="field-group" style="margin-top:12px">
             <label class="field-label">Notes (optional)</label>
-            <input id="ex-notes" type="text" placeholder="e.g. felt strong, joint pain..." style="margin-top:4px">
+            <input id="ex-notes" type="text" placeholder="e.g. felt strong, joint pain..." style="margin-top:4px" oninput="saveDraft()">
           </div>
           <button class="btn-primary" id="log-ex-btn" onclick="logExercise()" style="margin-top:8px">Log exercise</button>
         </div>
@@ -980,6 +980,34 @@ function removeSet(idx) {
   renderSetsList();
 }
 
+const DRAFT_KEY = 'fitdash_draft';
+
+function saveDraft() {
+  try {
+    if (!selectedExercise) { localStorage.removeItem(DRAFT_KEY); return; }
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      ex: selectedExercise,
+      notes: document.getElementById('ex-notes')?.value || '',
+      sets: currentSets
+    }));
+  } catch(e) {}
+}
+
+function restoreDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    if (!d || !d.ex) return;
+    selectedExercise = d.ex;
+    currentSets = Array.isArray(d.sets) ? d.sets : [];
+    document.getElementById('ex-picker-card').style.display = 'none';
+    document.getElementById('ex-log-form-card').style.display = 'block';
+    document.getElementById('ex-selected-name').textContent = d.ex;
+    document.getElementById('ex-notes').value = d.notes || '';
+    document.getElementById('ex-last-log').style.display = 'none';
+    renderSetsList();
+  } catch(e) {}
+}
+
 function renderSetsList() {
   const el = document.getElementById('sets-list');
   if (!el) return;
@@ -1002,6 +1030,7 @@ function renderSetsList() {
   }).join('');
   const btn = document.getElementById('log-ex-btn');
   if (btn) btn.textContent = currentSets.length ? `Log exercise — ${currentSets.length} set${currentSets.length>1?'s':''}` : 'Log exercise';
+  saveDraft();
 }
 
 // Update state and the row's 1RM in place; re-rendering here would steal focus from the input.
@@ -1009,6 +1038,7 @@ function onSetInput(i, field, input) {
   currentSets[i][field] = input.value;
   const orm = calcEpley(currentSets[i].reps, currentSets[i].weight);
   input.closest('.set-row').querySelector('.set-orm').textContent = orm ? '1RM ' + orm : '';
+  saveDraft();
 }
 
 function logExercise() {
@@ -1629,6 +1659,7 @@ function clearExercisePicker() {
 
 initDateTime();
 initExercisePicker();
+restoreDraft();
 renderAll();
 showAuthUI();
 
