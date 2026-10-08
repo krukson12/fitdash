@@ -313,10 +313,14 @@ select option { background: var(--bg3); }
             <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Last logged</div>
             <div id="ex-last-log-text" style="font-size:13px;font-family:DM Mono,monospace;color:var(--accent)"></div>
           </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:10px">
+            <input type="checkbox" id="ex-bw" onchange="applyBwMode(this.checked)" style="width:auto">
+            Ciężar ciała (kg = dodatkowe obciążenie)
+          </label>
           <div class="sets-col-headers">
             <div class="ch ch-num"></div>
             <div class="ch">Reps</div>
-            <div class="ch">kg</div>
+            <div class="ch" id="kg-header">kg</div>
             <div class="ch ch-rpe">RPE</div>
             <div class="ch ch-del"></div>
           </div>
@@ -981,12 +985,25 @@ function removeSet(idx) {
 }
 
 const DRAFT_KEY = 'fitdash_draft';
+const BW_PATTERN = /dip|pull-?up|podci|pompk|push-?up/i;
+let selectedBw = false;
+
+function currentBodyweight() { return parseFloat(S.bodyweights[0]?.val) || 0; }
+function setLoad(w) { return selectedBw ? currentBodyweight() + (parseFloat(w) || 0) : w; }
+
+function applyBwMode(on) {
+  selectedBw = !!on;
+  document.getElementById('ex-bw').checked = selectedBw;
+  document.getElementById('kg-header').textContent = selectedBw ? '+kg' : 'kg';
+  renderSetsList();
+}
 
 function saveDraft() {
   try {
     if (!selectedExercise) { localStorage.removeItem(DRAFT_KEY); return; }
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
       ex: selectedExercise,
+      bw: selectedBw,
       notes: document.getElementById('ex-notes')?.value || '',
       sets: currentSets
     }));
@@ -1004,7 +1021,7 @@ function restoreDraft() {
     document.getElementById('ex-selected-name').textContent = d.ex;
     document.getElementById('ex-notes').value = d.notes || '';
     document.getElementById('ex-last-log').style.display = 'none';
-    renderSetsList();
+    applyBwMode(d.bw);
   } catch(e) {}
 }
 
@@ -1012,14 +1029,14 @@ function renderSetsList() {
   const el = document.getElementById('sets-list');
   if (!el) return;
   el.innerHTML = currentSets.map((s, i) => {
-    const orm = calcEpley(s.reps, s.weight);
+    const orm = calcEpley(s.reps, setLoad(s.weight));
     return `
     <div class="set-row">
       <span class="set-num">Set ${i+1}<span class="set-orm">${orm ? '1RM ' + orm : ''}</span></span>
       <input type="number" inputmode="numeric" min="1" max="100" placeholder="reps" value="${s.reps}"
         oninput="onSetInput(${i},'reps',this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
-      <input type="number" inputmode="decimal" min="0" max="500" step="0.5" placeholder="kg" value="${s.weight}"
+      <input type="number" inputmode="decimal" min="0" max="500" step="0.5" placeholder="${selectedBw ? '+kg' : 'kg'}" value="${s.weight}"
         oninput="onSetInput(${i},'weight',this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
       <input type="number" inputmode="numeric" min="1" max="10" placeholder="RPE" value="${s.rpe}" class="rpe-in"
@@ -1036,7 +1053,7 @@ function renderSetsList() {
 // Update state and the row's 1RM in place; re-rendering here would steal focus from the input.
 function onSetInput(i, field, input) {
   currentSets[i][field] = input.value;
-  const orm = calcEpley(currentSets[i].reps, currentSets[i].weight);
+  const orm = calcEpley(currentSets[i].reps, setLoad(currentSets[i].weight));
   input.closest('.set-row').querySelector('.set-orm').textContent = orm ? '1RM ' + orm : '';
   saveDraft();
 }
@@ -1058,7 +1075,7 @@ function logExercise() {
     name, notes,
     sets_data: validSets.map(s => ({ reps: parseInt(s.reps)||0, weight: parseFloat(s.weight)||0, rpe: s.rpe ? parseInt(s.rpe) : null })),
     sets: validSets.length, reps: parseInt(validSets[0].reps)||0, weight: maxWeight,
-    pr, date: todayStr()
+    pr, date: todayStr(), bw: selectedBw
   });
   clearExercisePicker();
   commit();
@@ -1070,7 +1087,7 @@ let expandedDays = new Set([todayStr()]);
 
 function fmtSetsData(e) {
   if (e.sets_data && e.sets_data.length) {
-    return e.sets_data.map(s => `${s.reps}${s.weight?' @'+s.weight+'kg':''}${s.rpe?' RPE'+s.rpe:''}`).join(' · ');
+    return e.sets_data.map(s => `${s.reps}${s.weight?(e.bw?' +':' @')+s.weight+'kg':''}${s.rpe?' RPE'+s.rpe:''}`).join(' · ');
   }
   return `${e.sets} × ${e.reps}${e.weight ? ' @ ' + e.weight + ' kg' : ''}`;
 }
@@ -1619,6 +1636,7 @@ function selectExercise(name) {
   const lastDiv = document.getElementById('ex-last-log');
   const lastText = document.getElementById('ex-last-log-text');
   currentSets = [];
+  applyBwMode(BW_PATTERN.test(name));
   if (last) {
     if (last.sets_data && last.sets_data.length) {
       last.sets_data.forEach(s => addSet(s.reps, s.weight, false));
@@ -1644,6 +1662,7 @@ function confirmCustomExercise() {
   document.getElementById('ex-last-log').style.display = 'none';
   document.getElementById('ex-notes').value = '';
   currentSets = [];
+  applyBwMode(BW_PATTERN.test(val));
   addSet();
 }
 
@@ -1654,7 +1673,7 @@ function clearExercisePicker() {
   document.getElementById('ex-log-form-card').style.display = 'none';
   document.getElementById('ex-name-custom').value = '';
   document.getElementById('ex-notes').value = '';
-  renderSetsList();
+  applyBwMode(false);
 }
 
 initDateTime();
