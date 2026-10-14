@@ -1481,6 +1481,38 @@ const BC_METRICS = [
   { k: 'mage', label: 'Met. age', unit: '', dec: 0 },
 ];
 let bcMetric = 'fat';
+let bcFrom = null;
+const BC_START = new Date(2025, 0, 1).getTime();
+
+function bcChartSVG(pts, m, fmt) {
+  const W = 340, H = 240, L = 40, R = 24, T = 18, B = 26;
+  const xs = pts.map(p => bcTime(p.date)), ys = pts.map(p => +p[m.k]);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  if (x1 === x0) { x0 -= 864e5; x1 += 864e5; }
+  const pad = (y1 - y0) * 0.15 || Math.max(Math.abs(y0) * 0.02, 1);
+  y0 -= pad; y1 += pad;
+  const X = t => L + (t - x0) / (x1 - x0) * (W - L - R);
+  const Y = v => T + (1 - (v - y0) / (y1 - y0)) * (H - T - B);
+  const txt = 'font-family="DM Mono,monospace" font-size="10" fill="var(--text3)"';
+  let g = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = y0 + (y1 - y0) * i / 4, y = Y(v).toFixed(1);
+    g += `<line x1="${L}" x2="${W - R}" y1="${y}" y2="${y}" stroke="var(--border2)" stroke-width="0.5"/>
+          <text x="${L - 4}" y="${+y + 3}" text-anchor="end" ${txt}>${v.toFixed(m.dec)}</text>`;
+  }
+  const ticks = Math.min(3, pts.length - 1) || 1, longSpan = x1 - x0 > 300 * 864e5;
+  for (let i = 0; i <= ticks; i++) {
+    const t = x0 + (x1 - x0) * i / ticks, d = new Date(t);
+    g += `<text x="${X(t).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === ticks ? 'end' : 'middle'}" ${txt}>${longSpan ? `${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`}</text>`;
+  }
+  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${X(xs[i]).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ');
+  const labels = pts.length <= 12;
+  const dots = pts.map((p, i) => `<circle cx="${X(xs[i]).toFixed(1)}" cy="${Y(ys[i]).toFixed(1)}" r="3.5" fill="var(--accent)"/>` +
+    (labels ? `<text x="${X(xs[i]).toFixed(1)}" y="${(Y(ys[i]) - 8).toFixed(1)}" text-anchor="middle" font-family="DM Mono,monospace" font-size="10" fill="var(--text)">${ys[i].toFixed(m.dec)}</text>` : '')).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${g}
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}</svg>
+    <div style="font-size:11px;color:var(--text3);font-family:DM Mono,monospace;text-align:right">min ${fmt(Math.min(...ys))} · max ${fmt(Math.max(...ys))}</div>`;
+}
 
 function bcTime(d) { const [dd, mm, yy] = d.split('/'); return new Date(+yy, mm - 1, +dd).getTime(); }
 
@@ -1497,21 +1529,21 @@ function renderBodyComp() {
   document.getElementById('bc-metrics').innerHTML = avail.map(x =>
     `<button class="gym-tab ${x.k === bcMetric ? 'active' : ''}" onclick="bcMetric='${x.k}';renderBodyComp()">${x.label}</button>`).join('');
 
-  const pts = S.bodyweights.filter(b => b[m.k] != null).slice().reverse();
-  const xs = pts.map(p => bcTime(p.date)), ys = pts.map(p => +p[m.k]);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-  const W = 300, H = 120, P = 10;
-  const X = t => x1 === x0 ? W / 2 : P + (t - x0) / (x1 - x0) * (W - 2 * P);
-  const Y = v => y1 === y0 ? H / 2 : H - P - (v - y0) / (y1 - y0) * (H - 2 * P);
-  const path = pts.map((p, i) => `${i ? 'L' : 'M'}${X(xs[i]).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join(' ');
-  const dots = pts.map((p, i) => `<circle cx="${X(xs[i]).toFixed(1)}" cy="${Y(ys[i]).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
-  document.getElementById('bc-chart').innerHTML = `
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
-      <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="1.5"/>${dots}
-    </svg>
-    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:DM Mono,monospace">
-      <span>${escHtml(pts[0].date)}</span><span>min ${fmt(y0)} · max ${fmt(y1)}</span><span>${escHtml(pts[pts.length - 1].date)}</span>
-    </div>`;
+  const pts = S.bodyweights.filter(b => b[m.k] != null && bcTime(b.date) >= BC_START).slice().reverse();
+  if (!pts.length) { document.getElementById('bc-chart').innerHTML = '<div class="empty">Brak pomiarów od 2025</div>'; document.getElementById('bc-stats').innerHTML = ''; return; }
+  const first = bcTime(pts[0].date), lastT = bcTime(pts[pts.length - 1].date);
+  const from = Math.min(Math.max(bcFrom ?? first, first), lastT);
+  const shown = pts.filter(p => bcTime(p.date) >= from);
+  document.getElementById('bc-chart').innerHTML = bcChartSVG(shown, m, fmt) + `
+    <div style="display:flex;gap:6px;margin:10px 0 6px;flex-wrap:wrap">
+      ${[['1M', 30], ['3M', 91], ['6M', 182], ['1R', 365], ['Wszystko', 0]].map(([l, d]) => {
+        const f = d ? Math.max(first, lastT - d * 864e5) : first;
+        return `<button class="gym-tab ${Math.abs(from - f) < 864e5 ? 'active' : ''}" style="padding:4px 10px;font-size:12px" onclick="bcFrom=${f};renderBodyComp()">${l}</button>`;
+      }).join('')}
+    </div>
+    ${lastT > first ? `<input type="range" min="${first}" max="${lastT}" step="86400000" value="${from}" style="width:100%;padding:0;accent-color:var(--accent)"
+      oninput="bcFrom=+this.value;renderBodyComp()">` : ''}
+    <div style="font-size:11px;color:var(--text3);font-family:DM Mono,monospace;margin-top:4px">od ${escHtml(fmtDate(new Date(from)))} · ${shown.length} pomiarów</div>`;
 
   const last = pts[pts.length - 1], prev = pts[pts.length - 2];
   const month = [...pts].reverse().find(p => bcTime(p.date) <= bcTime(last.date) - 30 * 864e5);
