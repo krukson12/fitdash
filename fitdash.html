@@ -385,7 +385,7 @@ select option { background: var(--bg3); }
           </div>
           <button class="btn-primary" onclick="logBodyweight()">Log weight</button>
           <label class="add-set-btn" style="display:block;text-align:center;margin-top:10px">Import Withings CSV (weight.csv)
-            <input type="file" accept=".csv,text/csv" style="display:none" onchange="importWithingsCSV(this)">
+            <input type="file" accept=".csv,text/csv" multiple style="display:none" onchange="importWithingsCSV(this)">
           </label>
           <div id="bw-import-msg" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
         </div>
@@ -1383,8 +1383,12 @@ function parseCSVLine(line) {
 // weight.csv from Withings "Download my data": kg values; % are computed against the weight.
 async function importWithingsCSV(input) {
   const msg = document.getElementById('bw-import-msg');
-  const file = input.files[0]; input.value = '';
-  if (!file) return;
+  const files = [...input.files]; input.value = '';
+  if (!files.length) return;
+  // The export has many CSVs; accept any selection and use the one that is weight.csv.
+  let file = files.find(f => f.name.toLowerCase() === 'weight.csv');
+  if (!file) for (const f of files) if (/weight \(kg\)/i.test((await f.text()).split(/\r?\n/)[0])) { file = f; break; }
+  if (!file) { msg.textContent = 'Nie znalazłem weight.csv wśród wybranych plików.'; return; }
   const lines = (await file.text()).split(/\r?\n/).filter(l => l.trim());
   const head = parseCSVLine(lines[0] || '').map(h => h.toLowerCase());
   const col = k => head.findIndex(h => h.startsWith(k));
