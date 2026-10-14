@@ -384,8 +384,8 @@ select option { background: var(--bg3); }
             <input id="bw-val" type="number" min="20" max="300" step="0.1" placeholder="75.0">
           </div>
           <button class="btn-primary" onclick="logBodyweight()">Log weight</button>
-          <label class="add-set-btn" style="display:block;text-align:center;margin-top:10px">Import Withings CSV (weight.csv)
-            <input type="file" accept=".csv,text/csv" multiple style="display:none" onchange="importWithingsCSV(this)">
+          <label class="add-set-btn" style="display:block;text-align:center;margin-top:10px">Import Withings (ZIP lub CSV)
+            <input type="file" accept=".zip,.csv,application/zip,text/csv" multiple style="display:none" onchange="importWithingsCSV(this)">
           </label>
           <div id="bw-import-msg" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
         </div>
@@ -1388,11 +1388,42 @@ function parseCSVLine(line) {
   return out;
 }
 
+// Minimal ZIP reader (stored/deflate) for the Withings export; extracts weight.csv and other.csv.
+async function unzipCSVs(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('not a zip');
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const out = [];
+  for (let n = 0; n < count && dv.getUint32(p, true) === 0x02014b50; n++) {
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), off = dv.getUint32(p + 42, true);
+    const nlen = dv.getUint16(p + 28, true);
+    const name = new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nlen)).split('/').pop().toLowerCase();
+    p += 46 + nlen + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+    if (name !== 'weight.csv' && name !== 'other.csv') continue;
+    const start = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+    const data = buf.subarray(start, start + csize);
+    let text;
+    if (method === 0) text = new TextDecoder().decode(data);
+    else if (method === 8) text = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text();
+    else continue;
+    out.push({ name, text: async () => text });
+  }
+  return out;
+}
+
 // weight.csv from Withings "Download my data": kg values; % are computed against the weight.
 async function importWithingsCSV(input) {
   const msg = document.getElementById('bw-import-msg');
   const files = [...input.files]; input.value = '';
   if (!files.length) return;
+  for (const f of [...files]) if (/\.zip$/i.test(f.name)) {
+    try { files.push(...await unzipCSVs(f)); }
+    catch (e) { msg.textContent = 'Nie udało się rozpakować pliku ZIP.'; return; }
+  }
   // The export has many CSVs; accept any selection and use the one that is weight.csv.
   let file = files.find(f => f.name.toLowerCase() === 'weight.csv');
   if (!file) for (const f of files) if (/weight \(kg\)/i.test((await f.text()).split(/\r?\n/)[0])) { file = f; break; }
