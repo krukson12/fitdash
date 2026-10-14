@@ -77,7 +77,39 @@ declare
   hint  text := concat_ws(' ', workout, w_name, w_type);
   label text;
   d     text;
+  rid   text;
 begin
+  -- Body weight / body fat %: one record per day (hk-bw-YYYYMMDD); fat is merged into
+  -- that day's weight. Samples should arrive oldest first so the last weigh-in wins.
+  -- A weight entered by hand in the app for the same day always takes precedence.
+  if w_type in ('weight', 'fat') and steps is null and start is null then
+    if val is null then return format('error: no value for %s', w_type); end if;
+    if w_type = 'weight' and w_unit ~* '^\s*(lb|funt)' then val := val * 0.45359237; end if;
+    if w_type = 'fat' and val <= 1 then val := val * 100; end if;   -- Health may send 0.18 for 18 %
+    d := to_char(coalesce(fitdash_ts(day) at time zone 'Europe/Warsaw', now() at time zone 'Europe/Warsaw')::date, 'DD/MM/YYYY');
+    if day ~ '^\d{4}-\d{2}-\d{2}' then d := to_char(left(day, 10)::date, 'DD/MM/YYYY'); end if;
+    if exists (select 1 from fitdash_records r where r.user_id = uid and r.coll = 'bodyweights' and not r.del
+               and r.id not like 'hk-bw-%' and r.data->>'date' = d) then
+      return format('skipped: %s on %s, weight already entered in the app', w_type, d);
+    end if;
+    rid := 'hk-bw-' || to_char(to_date(d, 'DD/MM/YYYY'), 'YYYYMMDD');
+    if w_type = 'weight' then
+      insert into fitdash_records (user_id, coll, id, data, t)
+      values (uid, 'bodyweights', rid,
+              jsonb_build_object('val', round(val, 1), 'date', d, 'source', 'health',
+                                 'c', (extract(epoch from to_date(d, 'DD/MM/YYYY')::timestamp) * 1000)::bigint),
+              1)
+      on conflict (user_id, coll, id) do update
+        set data = fitdash_records.data || jsonb_build_object('val', round(val, 1))
+        where fitdash_records.t = 1 and not fitdash_records.del;
+    else
+      update fitdash_records set data = data || jsonb_build_object('fat', round(val, 1))
+        where user_id = uid and coll = 'bodyweights' and id = rid and t = 1 and not del;
+      if not found then return format('skipped: fat %s on %s, no weight from Health that day', round(val, 1), d); end if;
+    end if;
+    return format('ok: %s %s on %s', w_type, round(val, 1), d);
+  end if;
+
   if steps is not null then
     n := coalesce(val, n);   -- the sample's Value property is cleaner than its text form
     d := to_char(coalesce(fitdash_ts(day) at time zone 'Europe/Warsaw', now() at time zone 'Europe/Warsaw')::date, 'DD/MM/YYYY');
