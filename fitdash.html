@@ -384,6 +384,10 @@ select option { background: var(--bg3); }
             <input id="bw-val" type="number" min="20" max="300" step="0.1" placeholder="75.0">
           </div>
           <button class="btn-primary" onclick="logBodyweight()">Log weight</button>
+          <label class="add-set-btn" style="display:block;text-align:center;margin-top:10px">Import Withings CSV (weight.csv)
+            <input type="file" accept=".csv,text/csv" style="display:none" onchange="importWithingsCSV(this)">
+          </label>
+          <div id="bw-import-msg" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
         </div>
         <div class="card" id="bw-chart-card" style="display:none">
           <div id="bw-summary-area"></div>
@@ -1363,6 +1367,55 @@ function logBodyweight() {
   document.getElementById('bw-val').value = '';
 }
 
+function parseCSVLine(line) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+// weight.csv from Withings "Download my data": kg values; % are computed against the weight.
+async function importWithingsCSV(input) {
+  const msg = document.getElementById('bw-import-msg');
+  const file = input.files[0]; input.value = '';
+  if (!file) return;
+  const lines = (await file.text()).split(/\r?\n/).filter(l => l.trim());
+  const head = parseCSVLine(lines[0] || '').map(h => h.toLowerCase());
+  const col = k => head.findIndex(h => h.startsWith(k));
+  const iDate = col('date'), iW = col('weight'), iF = col('fat mass'), iM = col('muscle'), iH = col('hydration');
+  if (iDate < 0 || iW < 0) { msg.textContent = 'To nie jest weight.csv z eksportu Withings.'; return; }
+  const latest = {};
+  for (const line of lines.slice(1)) {
+    const r = parseCSVLine(line);
+    const at = r[iDate], w = parseFloat(r[iW]);
+    if (!at || !w) continue;
+    const date = normDate(at);
+    if (latest[date] && latest[date].at >= at) continue;
+    const pct = i => { const v = parseFloat(r[i]); return i >= 0 && v ? Math.round(v / w * 1000) / 10 : undefined; };
+    latest[date] = { at, val: Math.round(w * 10) / 10, fat: pct(iF), muscle: pct(iM), water: pct(iH) };
+  }
+  let added = 0, updated = 0;
+  for (const [date, m] of Object.entries(latest)) {
+    const fields = { val: m.val };
+    ['fat', 'muscle', 'water'].forEach(k => { if (m[k] !== undefined) fields[k] = m[k]; });
+    const existing = S.bodyweights.find(b => b.date === date);
+    if (existing) { Object.assign(existing, fields); touchItem('bodyweights', existing); updated++; }
+    else { addItem('bodyweights', { ...fields, date, source: 'withings' }); added++; }
+  }
+  commit();
+  msg.textContent = `Withings: ${added} nowych dni, ${updated} zaktualizowanych.`;
+}
+
+function bwComp(b) {
+  return [b.fat && b.fat + '% fat', b.muscle && b.muscle + '% muscle', b.water && b.water + '% water'].filter(Boolean).join(' · ');
+}
+
 function renderBWChart() {
   const card = document.getElementById('bw-chart-card');
   const chart = document.getElementById('bw-chart');
@@ -1374,7 +1427,7 @@ function renderBWChart() {
   const diff = prev ? (latest.val - prev.val) : null;
   const diffStr = diff !== null ? (diff >= 0 ? '+' : '') + diff.toFixed(1) + ' kg' : '—';
   const diffClass = diff === null ? '' : diff > 0 ? 'up' : diff < 0 ? 'down' : '';
-  summary.innerHTML = `<div class="bw-summary"><div><span class="bw-main">${latest.val}</span><span class="bw-kg">kg</span>${latest.fat ? `<span class="bw-kg">· ${latest.fat}% fat</span>` : ''}</div><div class="bw-diff ${diffClass}">${diffStr} from last</div></div>`;
+  summary.innerHTML = `<div class="bw-summary"><div><span class="bw-main">${latest.val}</span><span class="bw-kg">kg</span></div><div class="bw-diff ${diffClass}">${diffStr} from last</div></div>${bwComp(latest) ? `<div style="font-size:12px;color:var(--text2);font-family:DM Mono,monospace;margin:-10px 0 14px">${bwComp(latest)}</div>` : ''}`;
   const data = S.bodyweights.slice(0, 7).reverse();
   const vals = data.map(d => d.val);
   const min = Math.min(...vals) - 2, max = Math.max(...vals) + 2, range = max - min || 1;
@@ -1552,7 +1605,7 @@ function openDayModal(dateStr) {
     exercises.forEach(e => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(e.name)}${e.pr?'<span class="pr-badge">PR</span>':''}</div><div class="modal-ex-meta">${fmtSetsData(e)}${e.notes ? '<br style="margin-top:2px"><span style="font-style:italic;color:var(--text3)">"'+escHtml(e.notes)+'"</span>' : ''}</div></div>`; });
     cardios.forEach(c => { body += `<div class="modal-ex-row"><div class="modal-ex-name">${escHtml(c.type)}${sourceBadge(c)}</div><div class="modal-ex-meta">${c.dur} min${c.dist?' · '+c.dist+' km':''}</div></div>`; });
   }
-  if (bwEntry) body += `<div class="modal-section-title">Body weight</div><div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span>${bwEntry.fat ? `<span style="color:var(--text2);margin-left:10px">${bwEntry.fat}% fat</span>` : ''}</div>`;
+  if (bwEntry) body += `<div class="modal-section-title">Body weight</div><div class="modal-habit-row"><span style="font-size:22px;font-weight:600;font-family:DM Mono,monospace;color:var(--accent)">${bwEntry.val}</span><span style="color:var(--text2);margin-left:4px">kg</span>${bwComp(bwEntry) ? `<span style="color:var(--text2);margin-left:10px;font-size:12px">${bwComp(bwEntry)}</span>` : ''}</div>`;
   if (!habits.length && !exercises.length && !cardios.length && !bwEntry) body += '<div class="empty" style="padding:30px 0">No activity logged</div>';
   document.getElementById('modal-body').innerHTML = body;
   document.getElementById('modal-overlay').classList.add('open');
