@@ -309,23 +309,23 @@ select option { background: var(--bg3); }
             <button onclick="clearExercisePicker()" style="width:28px;height:28px;border-radius:50%;background:var(--bg3);border:0.5px solid var(--border2);color:var(--text2);font-size:16px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center">←</button>
             <div id="ex-selected-name" style="font-size:16px;font-weight:600;color:var(--text);flex:1"></div>
           </div>
-          <div id="ex-last-log" style="margin-bottom:12px;display:none">
-            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Last logged</div>
-            <div id="ex-last-log-text" style="font-size:13px;font-family:DM Mono,monospace;color:var(--accent)"></div>
-          </div>
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:10px">
             <input type="checkbox" id="ex-bw" onchange="applyBwMode(this.checked)" style="width:auto">
             Ciężar ciała (kg = dodatkowe obciążenie)
           </label>
           <div class="sets-col-headers">
             <div class="ch ch-num"></div>
-            <div class="ch">Reps</div>
             <div class="ch" id="kg-header">kg</div>
+            <div class="ch">Reps</div>
             <div class="ch ch-rpe">RPE</div>
             <div class="ch ch-del"></div>
           </div>
           <div id="sets-list"></div>
           <button class="add-set-btn" onclick="addSet()">+ Add set</button>
+          <div id="ex-last-log" style="margin-top:12px;display:none">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Last logged</div>
+            <div id="ex-last-log-text" style="font-size:13px;font-family:DM Mono,monospace;color:var(--accent)"></div>
+          </div>
           <div class="field-group" style="margin-top:12px">
             <label class="field-label">Notes (optional)</label>
             <input id="ex-notes" type="text" placeholder="e.g. felt strong, joint pain..." style="margin-top:4px" oninput="saveDraft()">
@@ -1033,11 +1033,11 @@ function renderSetsList() {
     return `
     <div class="set-row">
       <span class="set-num">Set ${i+1}<span class="set-orm">${orm ? '1RM ' + orm : ''}</span></span>
-      <input type="number" inputmode="numeric" min="1" max="100" placeholder="reps" value="${s.reps}"
-        oninput="onSetInput(${i},'reps',this)"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
       <input type="number" inputmode="decimal" min="0" max="500" step="0.5" placeholder="${selectedBw ? '+kg' : 'kg'}" value="${s.weight}"
         oninput="onSetInput(${i},'weight',this)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
+      <input type="number" inputmode="numeric" min="1" max="100" placeholder="reps" value="${s.reps}"
+        oninput="onSetInput(${i},'reps',this)"
         onkeydown="if(event.key==='Enter'){event.preventDefault();this.nextElementSibling.focus()}">
       <input type="number" inputmode="numeric" min="1" max="10" placeholder="RPE" value="${s.rpe}" class="rpe-in"
         oninput="onSetInput(${i},'rpe',this)"
@@ -1637,17 +1637,14 @@ function selectExercise(name) {
   const lastText = document.getElementById('ex-last-log-text');
   currentSets = [];
   applyBwMode(BW_PATTERN.test(name));
+  const count = last ? (last.sets_data?.length || last.sets || 1) : 1;
+  for (let i = 0; i < count; i++) addSet(undefined, undefined, false);
   if (last) {
-    if (last.sets_data && last.sets_data.length) {
-      last.sets_data.forEach(s => addSet(s.reps, s.weight, false));
-      lastText.textContent = last.sets_data.map((s,i) => `Set ${i+1}: ${s.reps} reps${s.weight?' @ '+s.weight+' kg':''}${s.rpe?' RPE'+s.rpe:''}`).join(' · ') + ' · ' + last.date;
-    } else {
-      for (let i = 0; i < (last.sets||1); i++) addSet(last.reps, last.weight, false);
-      lastText.textContent = `${last.sets} × ${last.reps} reps${last.weight?' @ '+last.weight+' kg':''} · ${last.date}`;
-    }
+    lastText.textContent = last.sets_data?.length
+      ? last.sets_data.map((s,i) => `Set ${i+1}: ${s.reps} reps${s.weight?' @ '+s.weight+' kg':''}${s.rpe?' RPE'+s.rpe:''}`).join(' · ') + ' · ' + last.date
+      : `${last.sets} × ${last.reps} reps${last.weight?' @ '+last.weight+' kg':''} · ${last.date}`;
     lastDiv.style.display = 'block';
   } else {
-    addSet();
     lastDiv.style.display = 'none';
   }
 }
