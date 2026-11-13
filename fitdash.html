@@ -1789,10 +1789,21 @@ const EXERCISES_DB = {
 let selectedExercise = '';
 let activeMuscleTab = Object.keys(EXERCISES_DB)[0];
 
+const CUSTOM_TAB = 'Własne';
+
+// Custom exercises live in the synced history: any logged name not in EXERCISES_DB.
+function customExercises() {
+  const known = new Set(Object.values(EXERCISES_DB).flat().map(n => n.toLowerCase()));
+  const names = new Map();
+  S.exercises.forEach(e => { const k = e.name.toLowerCase(); if (!known.has(k) && !names.has(k)) names.set(k, e.name); });
+  return [...names.values()].sort((a, b) => a.localeCompare(b, 'pl'));
+}
+
 function initExercisePicker() {
   const tabs = document.getElementById('ex-muscle-tabs');
   if (!tabs) return;
-  tabs.innerHTML = Object.keys(EXERCISES_DB).map(m =>
+  const groups = Object.keys(EXERCISES_DB).concat(customExercises().length ? [CUSTOM_TAB] : []);
+  tabs.innerHTML = groups.map(m =>
     `<button class="gym-tab ${m === activeMuscleTab ? 'active' : ''}" onclick="switchMuscleTab(${jsArg(m)},this)">${escHtml(m)}</button>`
   ).join('');
   renderExercisePicker();
@@ -1808,7 +1819,7 @@ function switchMuscleTab(muscle, btn) {
 function renderExercisePicker() {
   const list = document.getElementById('ex-picker-list');
   if (!list) return;
-  const exercises = EXERCISES_DB[activeMuscleTab] || [];
+  const exercises = activeMuscleTab === CUSTOM_TAB ? customExercises() : EXERCISES_DB[activeMuscleTab] || [];
   list.innerHTML = exercises.map(ex => {
     const last = getLastLog(ex);
     return `<div onclick="selectExercise(${jsArg(ex)})" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:0.5px solid var(--border);cursor:pointer;">
@@ -1854,16 +1865,7 @@ function selectExercise(name) {
 
 function confirmCustomExercise() {
   const val = (document.getElementById('ex-name-custom').value || '').trim();
-  if (!val) return;
-  selectedExercise = val;
-  document.getElementById('ex-picker-card').style.display = 'none';
-  document.getElementById('ex-log-form-card').style.display = 'block';
-  document.getElementById('ex-selected-name').textContent = val;
-  document.getElementById('ex-last-log').style.display = 'none';
-  document.getElementById('ex-notes').value = '';
-  currentSets = [];
-  applyBwMode(BW_PATTERN.test(val));
-  addSet();
+  if (val) selectExercise(val);
 }
 
 function clearExercisePicker() {
@@ -1874,6 +1876,7 @@ function clearExercisePicker() {
   document.getElementById('ex-name-custom').value = '';
   document.getElementById('ex-notes').value = '';
   applyBwMode(false);
+  initExercisePicker();
 }
 
 initDateTime();
